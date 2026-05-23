@@ -1,0 +1,6 @@
+{
+  "name": "Subu AI",
+  "description": "Subu AI – An intelligent full-stack conversational assistant powered by Gemini architectures, supporting live Google search grounding, smart markdown layouts, speech features, and dynamic system prompts.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
