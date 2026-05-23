@@ -23,5 +23,6 @@ export interface ChatSession {
   systemInstruction?: string;
   useSearch: boolean;
   modelName: string;
+  provider?: string;
   createdAt: string;
 }

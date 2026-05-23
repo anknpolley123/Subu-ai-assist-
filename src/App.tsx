@@ -18,6 +18,82 @@ const SUGGESTED_CHIPS = [
   { text: "Summarize major achievements of Nikola Tesla", icon: "⚡", category: "History" }
 ];
 
+const PROVIDERS_CONFIG = {
+  gemini: {
+    name: "Google Gemini",
+    models: [
+      { id: "gemini-3.5-flash", label: "gemini-3.5-flash (Fast & Multimodal)" },
+      { id: "gemini-3.1-pro-preview", label: "gemini-3.1-pro-preview (Intense Reasoning)" },
+    ],
+    placeholderKey: "Paste private GEMINI_API_KEY...",
+    portalUrl: "https://aistudio.google.com/",
+    portalName: "Google AI Studio Portal",
+    keyEnv: "GEMINI_API_KEY"
+  },
+  groq: {
+    name: "Groq (Llama / Mixtral)",
+    models: [
+      { id: "llama-3.3-70b-versatile", label: "Llama 3.3 70B (Fast, Intelligent & Multi-turn)" },
+      { id: "llama-3.1-8b-instant", label: "Llama 3.1 8B (Ultra High-Speed)" },
+      { id: "mixtral-8x7b-32768", label: "Mixtral 8x7B (Large Context Mixture of Experts)" },
+      { id: "gemma2-9b-it", label: "Gemma 2 9B (Google Open-Weights Instruction-Tuned)" },
+    ],
+    placeholderKey: "Paste Groq API Key (gsk_...)",
+    portalUrl: "https://console.groq.com/keys",
+    portalName: "Groq Console Keys Page",
+    keyEnv: "GROQ_API_KEY"
+  },
+  openai: {
+    name: "OpenAI ChatGPT",
+    models: [
+      { id: "gpt-4o-mini", label: "gpt-4o-mini (Smart & Highly Efficient)" },
+      { id: "gpt-4o", label: "gpt-4o (Powerhouse Omni Intelligence)" },
+      { id: "o1-mini", label: "o1-mini (Advanced Reasoning Core)" },
+    ],
+    placeholderKey: "Paste OpenAI API Key (sk-...)",
+    portalUrl: "https://platform.openai.com/api-keys",
+    portalName: "OpenAI API Keys Dashboard",
+    keyEnv: "OPENAI_API_KEY"
+  },
+  deepseek: {
+    name: "DeepSeek Core",
+    models: [
+      { id: "deepseek-chat", label: "DeepSeek Core / Chat (High Intelligence & Low Latency)" },
+      { id: "deepseek-reasoner", label: "DeepSeek R1 (ELITE Math & Scientific Reasoning)" },
+    ],
+    placeholderKey: "Paste DeepSeek API Key...",
+    portalUrl: "https://platform.deepseek.com/",
+    portalName: "DeepSeek Console",
+    keyEnv: "DEEPSEEK_API_KEY"
+  },
+  anthropic: {
+    name: "Anthropic Claude",
+    models: [
+      { id: "claude-3-5-sonnet-20241022", label: "claude-3.5-sonnet (Premier Brain)" },
+      { id: "claude-3-5-haiku-20241022", label: "claude-3-5-haiku (Elite Speed Agent)" },
+    ],
+    placeholderKey: "Paste Anthropic Claude Key (sk-ant-...)",
+    portalUrl: "https://console.anthropic.com/",
+    portalName: "Anthropic Console Dashboard",
+    keyEnv: "ANTHROPIC_API_KEY"
+  },
+  sambanova: {
+    name: "SambaNova Systems",
+    models: [
+      { id: "Meta-Llama-3.3-70B-Instruct", label: "Llama 3.3 70B (High Precision & Speed)" },
+      { id: "Meta-Llama-3.1-405B-Instruct", label: "Llama 3.1 405B (Dense Giant Intelligence)" },
+      { id: "Meta-Llama-3.1-70B-Instruct", label: "Llama 3.1 70B (Fast Reasoning)" },
+      { id: "Meta-Llama-3.1-8B-Instruct", label: "Llama 3.1 8B (Super Swift Model)" },
+      { id: "Qwen2.5-72B-Instruct", label: "Qwen 2.5 72B (Elite Coding & Logic)" },
+      { id: "Qwen2.5-Coder-32B-Instruct", label: "Qwen 2.5 Coder 32B (World-Class Coder)" },
+    ],
+    placeholderKey: "Paste SambaNova API Key...",
+    portalUrl: "https://cloud.sambanova.ai/",
+    portalName: "SambaNova Cloud Portal",
+    keyEnv: "SAMBANOVA_API_KEY"
+  },
+};
+
 export default function App() {
   // Session States
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -29,14 +105,47 @@ export default function App() {
   );
   const [useSearch, setUseSearch] = useState<boolean>(false);
   const [modelName, setModelName] = useState<string>("gemini-3.5-flash");
-  const [customApiKey, setCustomApiKey] = useState<string>(() => {
-    return localStorage.getItem("ai_custom_api_key") || "";
+  
+  // Multi-Provider settings
+  const [provider, setProvider] = useState<"gemini" | "groq" | "openai" | "deepseek" | "anthropic" | "sambanova">(() => {
+    return (localStorage.getItem("ai_active_provider") as any) || "gemini";
   });
 
-  // Sync custom override key to localStorage
+  // Individual private key buffers per provider
+  const [providerKeys, setProviderKeys] = useState<{
+    gemini: string;
+    groq: string;
+    openai: string;
+    deepseek: string;
+    anthropic: string;
+    sambanova: string;
+  }>(() => {
+    try {
+      const saved = localStorage.getItem("ai_provider_keys");
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    const legacyKey = localStorage.getItem("ai_custom_api_key") || "";
+    return {
+      gemini: legacyKey,
+      groq: "",
+      openai: "",
+      deepseek: "",
+      anthropic: "",
+      sambanova: "",
+    };
+  });
+
+  const currentProviderKey = providerKeys[provider] || "";
+
+  // Sync state modifications to storage
   useEffect(() => {
-    localStorage.setItem("ai_custom_api_key", customApiKey);
-  }, [customApiKey]);
+    localStorage.setItem("ai_provider_keys", JSON.stringify(providerKeys));
+    localStorage.setItem("ai_custom_api_key", providerKeys.gemini); // retro compatibility
+  }, [providerKeys]);
+
+  useEffect(() => {
+    localStorage.setItem("ai_active_provider", provider);
+  }, [provider]);
 
   // Key Status and Diagnostics
   const [keyStatus, setKeyStatus] = useState<"checking" | "valid" | "leaked" | "invalid" | "untested">("untested");
@@ -50,7 +159,11 @@ export default function App() {
       const response = await fetch("/api/verify-key", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customApiKey }),
+        body: JSON.stringify({
+          provider,
+          customApiKey: currentProviderKey,
+          modelName
+        }),
       });
       const data = await response.json();
       if (data.success) {
@@ -58,7 +171,7 @@ export default function App() {
         setKeyErrorMsg("");
       } else {
         setKeyStatus(data.status || "invalid");
-        setKeyErrorMsg(data.error || "The API key was reported as leaked or is invalid.");
+        setKeyErrorMsg(data.error || "The API key is invalid or leaked.");
       }
     } catch (err: any) {
       setKeyStatus("invalid");
@@ -70,7 +183,7 @@ export default function App() {
 
   useEffect(() => {
     verifyApiCredentials();
-  }, [customApiKey]);
+  }, [provider, currentProviderKey, modelName]);
   
   // Input and Control States
   const [inputValue, setInputValue] = useState<string>("");
@@ -128,6 +241,7 @@ export default function App() {
           setSystemInstruction(parsed[0].systemInstruction || "You are Subu AI, a friendly, extremely intelligent, and highly capable AI assistant. Answer the user's questions clearly, accurately, and with beautiful layout and responsive markdown format.");
           setUseSearch(parsed[0].useSearch || false);
           setModelName(parsed[0].modelName || "gemini-3.5-flash");
+          setProvider(parsed[0].provider || "gemini");
           return;
         }
       } catch (e) {
@@ -154,6 +268,7 @@ export default function App() {
       systemInstruction,
       useSearch,
       modelName,
+      provider,
       createdAt: new Date().toISOString()
     };
     const updated = [newSession, ...sessions];
@@ -170,6 +285,7 @@ export default function App() {
       setSystemInstruction(session.systemInstruction || "You are Subu AI, a friendly, extremely intelligent, and highly capable AI assistant. Answer the user's questions clearly, accurately, and with beautiful layout and responsive markdown format.");
       setUseSearch(session.useSearch || false);
       setModelName(session.modelName || "gemini-3.5-flash");
+      setProvider((session.provider as any) || "gemini");
     }
   };
 
@@ -199,6 +315,7 @@ export default function App() {
         systemInstruction,
         useSearch,
         modelName,
+        provider,
         createdAt: new Date().toISOString()
       };
       saveSessionsToLocal([defaultSession]);
@@ -410,7 +527,8 @@ export default function App() {
           systemInstruction: systemInstruction,
           useSearch: useSearch,
           modelName: modelName,
-          customApiKey: customApiKey
+          provider: provider,
+          customApiKey: currentProviderKey
         })
       });
 
@@ -733,10 +851,10 @@ The workspace API Key has been reported as leaked or revoked by your service pro
                   </div>
                   <div className="space-y-1">
                     <h3 className="text-xs font-bold uppercase tracking-wider text-rose-300 font-mono">
-                      Authentication Terminated (Gemini Core 403)
+                      Authentication Alert / Credentials Missing
                     </h3>
                     <p className="text-xs text-rose-200/90 leading-relaxed font-sans">
-                      The default workspace API Key has been reported as leaked or revoked by your service provider. Let's fix this in 10 seconds!
+                      The credentials for <strong>{PROVIDERS_CONFIG[provider].name}</strong> are either leaked, revoked, or missing. Let's fix this in 10 seconds!
                     </p>
                   </div>
                 </div>
@@ -745,7 +863,7 @@ The workspace API Key has been reported as leaked or revoked by your service pro
                   <div className="text-[11px] font-mono text-slate-300 space-y-1.5 list-none pl-0">
                     <div className="flex gap-2">
                       <span className="text-rose-400">1.</span>
-                      <span>Generate a free key instantly in 0.5s: <a href="https://aistudio.google.com/" target="_blank" rel="noopener noreferrer" className="text-indigo-400 font-bold underline hover:text-indigo-300">Google AI Studio Secrets Portal</a></span>
+                      <span>Retrieve your key from the official console: <a href={PROVIDERS_CONFIG[provider].portalUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-400 font-bold underline hover:text-indigo-300">{PROVIDERS_CONFIG[provider].portalName}</a></span>
                     </div>
                     <div className="flex gap-2">
                       <span className="text-rose-400">2.</span>
@@ -756,9 +874,15 @@ The workspace API Key has been reported as leaked or revoked by your service pro
                   <div className="flex flex-col sm:flex-row gap-2 mt-2">
                     <input
                       type="password"
-                      placeholder="Paste your private GEMINI_API_KEY here..."
-                      value={customApiKey}
-                      onChange={(e) => setCustomApiKey(e.target.value)}
+                      placeholder={PROVIDERS_CONFIG[provider].placeholderKey}
+                      value={currentProviderKey}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setProviderKeys(prev => ({
+                          ...prev,
+                          [provider]: val
+                        }));
+                      }}
                       className="flex-1 bg-black/50 border border-rose-500/20 hover:border-rose-500/40 focus:border-indigo-500 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 outline-none font-mono"
                     />
                     <button
@@ -776,15 +900,20 @@ The workspace API Key has been reported as leaked or revoked by your service pro
                       )}
                     </button>
                   </div>
+                  {keyErrorMsg && (
+                    <div className="text-[10px] text-rose-400 font-mono bg-rose-950/20 border border-rose-500/10 p-2 rounded-lg mt-1 overflow-x-auto">
+                      Status: {keyErrorMsg}
+                    </div>
+                  )}
                 </div>
 
                 <p className="text-[10px] text-slate-400 font-mono italic">
-                  *Your key is protected locally and only leaves your client to authenticate against the secure Google Gemini server.
+                  *Your key is protected locally and only leaves your client to authenticate against the secure {PROVIDERS_CONFIG[provider].name} endpoint via our proxy server.
                 </p>
               </motion.div>
             )}
 
-            {keyStatus === "valid" && customApiKey && (
+            {keyStatus === "valid" && currentProviderKey && (
               <motion.div
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -792,16 +921,19 @@ The workspace API Key has been reported as leaked or revoked by your service pro
               >
                 <div className="flex items-center gap-2">
                   <CheckCircle className="w-4 h-4 text-emerald-400" />
-                  <span className="font-mono font-semibold uppercase tracking-wider text-[10px]">Secure Custom API Override Active</span>
+                  <span className="font-mono font-semibold uppercase tracking-wider text-[10px]">Secure {PROVIDERS_CONFIG[provider].name} Override Key Active</span>
                 </div>
                 <button
                   onClick={() => {
-                    setCustomApiKey("");
-                    showFeedbackAction("Reverted to standard environment key", "info");
+                    setProviderKeys(prev => ({
+                      ...prev,
+                      [provider]: ""
+                    }));
+                    showFeedbackAction(`Reverted to ${provider.toUpperCase()} environment variable settings`, "info");
                   }}
                   className="text-[10px] text-rose-400 hover:text-rose-300 font-semibold cursor-pointer underline decoration-dotted"
                 >
-                  Clear Custom Override Key
+                  Clear Dynamic Override Key
                 </button>
               </motion.div>
             )}
@@ -1167,35 +1299,63 @@ The workspace API Key has been reported as leaked or revoked by your service pro
               {/* Configurations Body */}
               <div className="flex-1 space-y-6">
                 
-                {/* Info banner about environment variables */}
-                <div className="p-3.5 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-200 text-xs leading-relaxed space-y-1">
-                  <div className="flex items-center gap-1.5 font-bold">
-                    <ShieldAlert className="w-4 h-4 text-orange-400" />
-                    <span>Gemini API Credentials Check</span>
-                  </div>
-                  <p className="text-orange-300">
-                    The default system key has been flagged as leaked by some service providers. Please use a custom key override below or update your secrets inside Google AI Studio.
-                  </p>
-                </div>
-
-                {/* Gemini API Key Override */}
+                {/* AI Model Workspace Provider */}
                 <div className="space-y-2">
                   <label className="text-xs font-bold uppercase tracking-wider text-slate-400 block font-mono">
-                    GEMINI API KEY OVERRIDE
+                    AI MODEL PROVIDER
+                  </label>
+                  <select
+                    value={provider}
+                    onChange={(e) => {
+                      const nextProvider = e.target.value as any;
+                      setProvider(nextProvider);
+                      const defModel = PROVIDERS_CONFIG[nextProvider].models[0].id;
+                      setModelName(defModel);
+                      updateActiveSessionSettings({ provider: nextProvider, modelName: defModel });
+                      showFeedbackAction(`Switched provider to ${PROVIDERS_CONFIG[nextProvider].name}`, "info");
+                    }}
+                    className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  >
+                    <option value="gemini" className="bg-slate-900 text-white">Google Gemini</option>
+                    <option value="groq" className="bg-slate-900 text-white">Groq (Llama / Mixtral)</option>
+                    <option value="openai" className="bg-slate-900 text-white">OpenAI ChatGPT</option>
+                    <option value="deepseek" className="bg-slate-900 text-white">DeepSeek Core (V3 / R1)</option>
+                    <option value="anthropic" className="bg-slate-900 text-white">Anthropic Claude</option>
+                    <option value="sambanova" className="bg-slate-900 text-white">SambaNova Systems</option>
+                  </select>
+                  <span className="text-[10px] text-slate-400 block leading-relaxed font-sans">
+                    Choose your AI engine power source. Alternate providers are fully supported as key overrides.
+                  </span>
+                </div>
+
+                {/* Selected Provider Key Override */}
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex justify-between items-center font-mono">
+                    <span>{provider.toUpperCase()} KEY OVERRIDE</span>
+                    <span className="text-[10px] text-emerald-400 font-bold">{keyStatus === "valid" ? "VALIDATED" : ""}</span>
                   </label>
                   <div className="relative">
                     <input
                       type="password"
-                      value={customApiKey}
-                      onChange={(e) => setCustomApiKey(e.target.value)}
-                      placeholder="Paste private GEMINI_API_KEY..."
+                      value={currentProviderKey}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setProviderKeys(prev => ({
+                          ...prev,
+                          [provider]: val
+                        }));
+                      }}
+                      placeholder={PROVIDERS_CONFIG[provider].placeholderKey}
                       className="w-full bg-black/40 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500/20 placeholder:text-slate-600 font-mono"
                     />
-                    {customApiKey && (
+                    {currentProviderKey && (
                       <button
                         onClick={() => {
-                          setCustomApiKey("");
-                          showFeedbackAction("Cleared custom API key dynamic override", "info");
+                          setProviderKeys(prev => ({
+                            ...prev,
+                            [provider]: ""
+                          }));
+                          showFeedbackAction("Cleared override key", "info");
                         }}
                         type="button"
                         className="absolute right-3 top-2.5 text-xs text-rose-400 hover:text-white cursor-pointer hover:underline font-semibold"
@@ -1205,14 +1365,14 @@ The workspace API Key has been reported as leaked or revoked by your service pro
                     )}
                   </div>
                   <span className="text-[10px] text-slate-400 block leading-relaxed">
-                    Saves instantly to your local client session storage. Get your key free in the <a href="https://aistudio.google.com/" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline">Google AI Studio Secrets Portal</a>.
+                    Local custom client sync. Retrieve your key securely at the <a href={PROVIDERS_CONFIG[provider].portalUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline">{PROVIDERS_CONFIG[provider].portalName}</a>.
                   </span>
                 </div>
 
                 {/* Model Picker */}
                 <div className="space-y-2">
                   <label className="text-xs font-bold uppercase tracking-wider text-slate-400 block font-mono">
-                    LLM CORE ENGINE
+                    LLM ENGINE MODEL
                   </label>
                   <select
                     value={modelName}
@@ -1223,11 +1383,14 @@ The workspace API Key has been reported as leaked or revoked by your service pro
                     }}
                     className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500/20"
                   >
-                    <option value="gemini-3.5-flash" className="bg-slate-900 text-white">gemini-3.5-flash (Fast & Accurate)</option>
-                    <option value="gemini-3.1-pro-preview" className="bg-slate-900 text-white">gemini-3.1-pro-preview (Advanced Reasoning)</option>
+                    {PROVIDERS_CONFIG[provider].models.map((m) => (
+                      <option key={m.id} value={m.id} className="bg-slate-900 text-white">
+                        {m.label}
+                      </option>
+                    ))}
                   </select>
                   <span className="text-[10px] text-slate-400 block leading-relaxed font-mono">
-                    Flash is super speedy for standard queries, while Pro handles advanced computing and logical thinking.
+                    Flash is speedy for standard tasks, while Pro/Haiku/Sonnet/R1 handle intricate calculations.
                   </span>
                 </div>
 

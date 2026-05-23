@@ -45,30 +45,172 @@ function getAiClient(customKey?: string): GoogleGenAI {
 }
 
 // API Routes
+// Helper to perform HTTP POST fetch requests to generic OpenAI endpoints
+async function callOpenAICompatibleAPI(
+  endpoint: string,
+  apiKey: string,
+  model: string,
+  messages: any[],
+  systemInstruction?: string
+) {
+  const requestMessages = [];
+  if (systemInstruction) {
+    requestMessages.push({ role: "system", content: systemInstruction });
+  }
+  requestMessages.push(...messages);
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      model: model,
+      messages: requestMessages,
+      max_tokens: 2048,
+      temperature: 0.7
+    })
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    let parsedErr;
+    try {
+      parsedErr = JSON.parse(errText);
+    } catch (e) {}
+    const errorDetails = parsedErr?.error?.message || errText || "HTTP Error";
+    throw new Error(`${errorDetails}`);
+  }
+
+  const data: any = await response.json();
+  const text = data?.choices?.[0]?.message?.content || "";
+  return { text, sources: [] };
+}
+
+// Helper to perform Anthropic Claude API call
+async function callAnthropicAPI(
+  apiKey: string,
+  model: string,
+  messages: any[],
+  systemInstruction?: string
+) {
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01"
+    },
+    body: JSON.stringify({
+      model: model,
+      max_tokens: 2048,
+      system: systemInstruction,
+      messages: messages.map((m: any) => ({
+        role: m.role === "assistant" ? "assistant" : "user",
+        content: m.content || ""
+      }))
+    })
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    let parsedErr;
+    try {
+      parsedErr = JSON.parse(errText);
+    } catch (e) {}
+    const errorDetails = parsedErr?.error?.message || errText || "HTTP Error";
+    throw new Error(`${errorDetails}`);
+  }
+
+  const data: any = await response.json();
+  const text = data?.content?.[0]?.text || "";
+  return { text, sources: [] };
+}
+
 app.post("/api/verify-key", async (req, res) => {
   try {
-    const { customApiKey } = req.body;
-    const ai = getAiClient(customApiKey);
-    
-    // Perform a tiny quick confirmation call to verify token readiness
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: "Hi",
-      config: {
-        maxOutputTokens: 2,
+    const { provider, customApiKey, modelName } = req.body;
+    const activeProvider = provider || "gemini";
+    const key = customApiKey?.trim() || "";
+
+    if (activeProvider === "gemini") {
+      const activeKey = key || process.env.GEMINI_API_KEY || "";
+      if (!activeKey) {
+        return res.json({ success: false, status: "untested", error: "Gemini API key is not configured." });
       }
-    });
+      const ai = getAiClient(activeKey);
+      await ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: "Hi",
+        config: { maxOutputTokens: 2 }
+      });
+    } else if (activeProvider === "groq") {
+      const activeKey = key || process.env.GROQ_API_KEY || "";
+      if (!activeKey) {
+        return res.json({ success: false, status: "untested", error: "Groq API key is not configured." });
+      }
+      await callOpenAICompatibleAPI(
+        "https://api.groq.com/openai/v1/chat/completions",
+        activeKey,
+        modelName || "llama-3.1-8b-instant",
+        [{ role: "user", content: "Hi" }]
+      );
+    } else if (activeProvider === "openai") {
+      const activeKey = key || process.env.OPENAI_API_KEY || "";
+      if (!activeKey) {
+        return res.json({ success: false, status: "untested", error: "OpenAI API key is not configured." });
+      }
+      await callOpenAICompatibleAPI(
+        "https://api.openai.com/v1/chat/completions",
+        activeKey,
+        modelName || "gpt-4o-mini",
+        [{ role: "user", content: "Hi" }]
+      );
+    } else if (activeProvider === "deepseek") {
+      const activeKey = key || process.env.DEEPSEEK_API_KEY || "";
+      if (!activeKey) {
+        return res.json({ success: false, status: "untested", error: "DeepSeek API key is not configured." });
+      }
+      await callOpenAICompatibleAPI(
+        "https://api.deepseek.com/chat/completions",
+        activeKey,
+        modelName || "deepseek-chat",
+        [{ role: "user", content: "Hi" }]
+      );
+    } else if (activeProvider === "anthropic") {
+      const activeKey = key || process.env.ANTHROPIC_API_KEY || "";
+      if (!activeKey) {
+        return res.json({ success: false, status: "untested", error: "Anthropic API key is not configured." });
+      }
+      await callAnthropicAPI(
+        activeKey,
+        modelName || "claude-3-5-haiku-20241022",
+        [{ role: "user", content: "Hi" }]
+      );
+    } else if (activeProvider === "sambanova") {
+      const activeKey = key || process.env.SAMBANOVA_API_KEY || "";
+      if (!activeKey) {
+        return res.json({ success: false, status: "untested", error: "SambaNova API key is not configured." });
+      }
+      await callOpenAICompatibleAPI(
+        "https://api.sambanova.ai/v1/chat/completions",
+        activeKey,
+        modelName || "Meta-Llama-3.3-70B-Instruct",
+        [{ role: "user", content: "Hi" }]
+      );
+    }
 
     res.json({
       success: true,
       status: "valid",
-      message: "API key is fully active and synchronized!"
+      message: `${activeProvider.toUpperCase()} Key is certified and fully active!`
     });
   } catch (error: any) {
     const errMsg = String(error.message || "");
     let status = "invalid";
     
-    if (errMsg.includes("leaked") || errMsg.includes("leak") || errMsg.includes("revoked") || errMsg.includes("PERMISSION_DENIED")) {
+    if (errMsg.includes("leaked") || errMsg.includes("leak") || errMsg.includes("revoked") || errMsg.includes("PERMISSION_DENIED") || errMsg.includes("403")) {
       status = "leaked";
     }
 
@@ -82,52 +224,143 @@ app.post("/api/verify-key", async (req, res) => {
 
 app.post("/api/chat", async (req, res) => {
   try {
-    const { messages, systemInstruction, useSearch, modelName, customApiKey } = req.body;
+    const { messages, systemInstruction, useSearch, modelName, provider, customApiKey } = req.body;
 
     if (!messages || !Array.isArray(messages)) {
       return res.status(400).json({ success: false, error: "messages array is required" });
     }
 
-    // Format the messages to match expected Gemini types exactly:
-    // { role: "user" | "model", parts: [{ text: string }] }
-    const formattedMessages = messages.map((m: any) => ({
-      role: m.role === "assistant" ? "model" : "user",
-      parts: Array.isArray(m.parts) ? m.parts : [{ text: String(m.content || m.text || "") }],
+    const activeProvider = provider || "gemini";
+    const selectedModel = modelName || "gemini-3.5-flash";
+    const key = customApiKey?.trim() || "";
+
+    if (activeProvider === "gemini") {
+      const activeKey = key || process.env.GEMINI_API_KEY;
+      if (!activeKey) {
+        throw new Error("GEMINI_API_KEY is not configured.");
+      }
+
+      // Format the messages to match expected Gemini types exactly:
+      // { role: "user" | "model", parts: [{ text: string }] }
+      const formattedMessages = messages.map((m: any) => ({
+        role: m.role === "assistant" ? "model" : "user",
+        parts: [{ text: String(m.content || m.text || "") }],
+      }));
+
+      const ai = getAiClient(activeKey);
+      const response = await ai.models.generateContent({
+        model: selectedModel,
+        contents: formattedMessages,
+        config: {
+          systemInstruction: systemInstruction || "You are Subu AI, a friendly, extremely intelligent, and highly capable AI assistant.",
+          tools: useSearch ? [{ googleSearch: {} }] : undefined,
+        },
+      });
+
+      const text = response.text || "";
+      const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+
+      // Extract search query details or grounding resources
+      const webSources = groundingChunks
+        .map((chunk: any) => ({
+          title: chunk.web?.title || chunk.maps?.title || "Web Search Detail",
+          uri: chunk.web?.uri || chunk.maps?.uri || "",
+        }))
+        .filter((item: any) => item.uri);
+
+      return res.json({
+        success: true,
+        text,
+        sources: webSources,
+      });
+    }
+
+    // OpenAI compatible providers
+    const formattedOpenAiMessages = messages.map((m: any) => ({
+      role: m.role === "assistant" ? "assistant" : "user",
+      content: String(m.content || "")
     }));
 
-    const selectedModel = modelName || "gemini-3.5-flash";
-    const ai = getAiClient(customApiKey);
+    if (activeProvider === "groq") {
+      const activeKey = key || process.env.GROQ_API_KEY;
+      if (!activeKey) {
+        throw new Error("Groq API Key (GROQ_API_KEY) is not set. Please enter or paste your Groq Key in the Subu AI configuration panel.");
+      }
+      const data = await callOpenAICompatibleAPI(
+        "https://api.groq.com/openai/v1/chat/completions",
+        activeKey,
+        selectedModel,
+        formattedOpenAiMessages,
+        systemInstruction
+      );
+      return res.json({ success: true, text: data.text, sources: [] });
+    }
 
-    const response = await ai.models.generateContent({
-      model: selectedModel,
-      contents: formattedMessages,
-      config: {
-        systemInstruction: systemInstruction || "You are a helpful, friendly, and extremely capable AI assistant. Answer the user's questions clearly, accurately, and with excellent layout and markdown format.",
-        tools: useSearch ? [{ googleSearch: {} }] : undefined,
-      },
-    });
+    if (activeProvider === "openai") {
+      const activeKey = key || process.env.OPENAI_API_KEY;
+      if (!activeKey) {
+        throw new Error("OpenAI API Key (OPENAI_API_KEY) is not set. Please enter or paste your OpenAI Key in the Subu AI configuration panel.");
+      }
+      const data = await callOpenAICompatibleAPI(
+        "https://api.openai.com/v1/chat/completions",
+        activeKey,
+        selectedModel,
+        formattedOpenAiMessages,
+        systemInstruction
+      );
+      return res.json({ success: true, text: data.text, sources: [] });
+    }
 
-    const text = response.text || "";
-    const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+    if (activeProvider === "deepseek") {
+      const activeKey = key || process.env.DEEPSEEK_API_KEY;
+      if (!activeKey) {
+        throw new Error("DeepSeek API Key (DEEPSEEK_API_KEY) is not set. Please enter or paste your DeepSeek Key in the Subu AI configuration panel.");
+      }
+      const data = await callOpenAICompatibleAPI(
+        "https://api.deepseek.com/chat/completions",
+        activeKey,
+        selectedModel,
+        formattedOpenAiMessages,
+        systemInstruction
+      );
+      return res.json({ success: true, text: data.text, sources: [] });
+    }
 
-    // Extract search query details or grounding resources
-    const webSources = groundingChunks
-      .map((chunk: any) => ({
-        title: chunk.web?.title || chunk.maps?.title || "Web Search Detail",
-        uri: chunk.web?.uri || chunk.maps?.uri || "",
-      }))
-      .filter((item: any) => item.uri);
+    if (activeProvider === "anthropic") {
+      const activeKey = key || process.env.ANTHROPIC_API_KEY;
+      if (!activeKey) {
+        throw new Error("Anthropic Claude API Key (ANTHROPIC_API_KEY) is not set. Please enter or paste your Anthropic Key in the Subu AI configuration panel.");
+      }
+      const data = await callAnthropicAPI(
+        activeKey,
+        selectedModel,
+        formattedOpenAiMessages,
+        systemInstruction
+      );
+      return res.json({ success: true, text: data.text, sources: [] });
+    }
 
-    res.json({
-      success: true,
-      text,
-      sources: webSources,
-    });
+    if (activeProvider === "sambanova") {
+      const activeKey = key || process.env.SAMBANOVA_API_KEY;
+      if (!activeKey) {
+        throw new Error("SambaNova API Key (SAMBANOVA_API_KEY) is not set. Please enter or paste your SambaNova Key in the Subu AI configuration panel.");
+      }
+      const data = await callOpenAICompatibleAPI(
+        "https://api.sambanova.ai/v1/chat/completions",
+        activeKey,
+        selectedModel,
+        formattedOpenAiMessages,
+        systemInstruction
+      );
+      return res.json({ success: true, text: data.text, sources: [] });
+    }
+
+    throw new Error(`Unsupported provider config option: ${activeProvider}`);
   } catch (error: any) {
-    console.error("Gemini Server Error:", error);
+    console.error("Multi-Provider API Server Error:", error);
     res.status(500).json({
       success: false,
-      error: error.message || "An unexpected error occurred in Gemini API communication",
+      error: error.message || "An unexpected error occurred in multi-provider AI communication",
     });
   }
 });
