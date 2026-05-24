@@ -131,21 +131,10 @@ async function callAnthropicAPI(
 app.post("/api/verify-key", async (req, res) => {
   try {
     const { provider, customApiKey, modelName } = req.body;
-    const activeProvider = provider || "gemini";
+    const activeProvider = provider || "sambanova";
     const key = customApiKey?.trim() || "";
 
-    if (activeProvider === "gemini") {
-      const activeKey = key || process.env.GEMINI_API_KEY || "";
-      if (!activeKey) {
-        return res.json({ success: false, status: "untested", error: "Gemini API key is not configured." });
-      }
-      const ai = getAiClient(activeKey);
-      await ai.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents: "Hi",
-        config: { maxOutputTokens: 2 }
-      });
-    } else if (activeProvider === "groq") {
+    if (activeProvider === "groq") {
       const activeKey = key || process.env.GROQ_API_KEY || "";
       if (!activeKey) {
         return res.json({ success: false, status: "untested", error: "Groq API key is not configured." });
@@ -230,50 +219,9 @@ app.post("/api/chat", async (req, res) => {
       return res.status(400).json({ success: false, error: "messages array is required" });
     }
 
-    const activeProvider = provider || "gemini";
-    const selectedModel = modelName || "gemini-3.5-flash";
+    const activeProvider = provider || "sambanova";
+    const selectedModel = modelName || "Meta-Llama-3.3-70B-Instruct";
     const key = customApiKey?.trim() || "";
-
-    if (activeProvider === "gemini") {
-      const activeKey = key || process.env.GEMINI_API_KEY;
-      if (!activeKey) {
-        throw new Error("GEMINI_API_KEY is not configured.");
-      }
-
-      // Format the messages to match expected Gemini types exactly:
-      // { role: "user" | "model", parts: [{ text: string }] }
-      const formattedMessages = messages.map((m: any) => ({
-        role: m.role === "assistant" ? "model" : "user",
-        parts: [{ text: String(m.content || m.text || "") }],
-      }));
-
-      const ai = getAiClient(activeKey);
-      const response = await ai.models.generateContent({
-        model: selectedModel,
-        contents: formattedMessages,
-        config: {
-          systemInstruction: systemInstruction || "You are Subu AI, a friendly, extremely intelligent, and highly capable AI assistant.",
-          tools: useSearch ? [{ googleSearch: {} }] : undefined,
-        },
-      });
-
-      const text = response.text || "";
-      const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-
-      // Extract search query details or grounding resources
-      const webSources = groundingChunks
-        .map((chunk: any) => ({
-          title: chunk.web?.title || chunk.maps?.title || "Web Search Detail",
-          uri: chunk.web?.uri || chunk.maps?.uri || "",
-        }))
-        .filter((item: any) => item.uri);
-
-      return res.json({
-        success: true,
-        text,
-        sources: webSources,
-      });
-    }
 
     // OpenAI compatible providers
     const formattedOpenAiMessages = messages.map((m: any) => ({

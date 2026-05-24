@@ -19,16 +19,20 @@ const SUGGESTED_CHIPS = [
 ];
 
 const PROVIDERS_CONFIG = {
-  gemini: {
-    name: "Google Gemini",
+  sambanova: {
+    name: "SambaNova Systems",
     models: [
-      { id: "gemini-3.5-flash", label: "gemini-3.5-flash (Fast & Multimodal)" },
-      { id: "gemini-3.1-pro-preview", label: "gemini-3.1-pro-preview (Intense Reasoning)" },
+      { id: "Meta-Llama-3.3-70B-Instruct", label: "Llama 3.3 70B (High Precision & Speed)" },
+      { id: "Meta-Llama-3.1-405B-Instruct", label: "Llama 3.1 405B (Dense Giant Intelligence)" },
+      { id: "Meta-Llama-3.1-70B-Instruct", label: "Llama 3.1 70B (Fast Reasoning)" },
+      { id: "Meta-Llama-3.1-8B-Instruct", label: "Llama 3.1 8B (Super Swift Model)" },
+      { id: "Qwen2.5-72B-Instruct", label: "Qwen 2.5 72B (Elite Coding & Logic)" },
+      { id: "Qwen2.5-Coder-32B-Instruct", label: "Qwen 2.5 Coder 32B (World-Class Coder)" },
     ],
-    placeholderKey: "Paste private GEMINI_API_KEY...",
-    portalUrl: "https://aistudio.google.com/",
-    portalName: "Google AI Studio Portal",
-    keyEnv: "GEMINI_API_KEY"
+    placeholderKey: "Paste SambaNova API Key...",
+    portalUrl: "https://cloud.sambanova.ai/",
+    portalName: "SambaNova Cloud Portal",
+    keyEnv: "SAMBANOVA_API_KEY"
   },
   groq: {
     name: "Groq (Llama / Mixtral)",
@@ -77,21 +81,6 @@ const PROVIDERS_CONFIG = {
     portalName: "Anthropic Console Dashboard",
     keyEnv: "ANTHROPIC_API_KEY"
   },
-  sambanova: {
-    name: "SambaNova Systems",
-    models: [
-      { id: "Meta-Llama-3.3-70B-Instruct", label: "Llama 3.3 70B (High Precision & Speed)" },
-      { id: "Meta-Llama-3.1-405B-Instruct", label: "Llama 3.1 405B (Dense Giant Intelligence)" },
-      { id: "Meta-Llama-3.1-70B-Instruct", label: "Llama 3.1 70B (Fast Reasoning)" },
-      { id: "Meta-Llama-3.1-8B-Instruct", label: "Llama 3.1 8B (Super Swift Model)" },
-      { id: "Qwen2.5-72B-Instruct", label: "Qwen 2.5 72B (Elite Coding & Logic)" },
-      { id: "Qwen2.5-Coder-32B-Instruct", label: "Qwen 2.5 Coder 32B (World-Class Coder)" },
-    ],
-    placeholderKey: "Paste SambaNova API Key...",
-    portalUrl: "https://cloud.sambanova.ai/",
-    portalName: "SambaNova Cloud Portal",
-    keyEnv: "SAMBANOVA_API_KEY"
-  },
 };
 
 export default function App() {
@@ -104,16 +93,17 @@ export default function App() {
     "You are Subu AI, a friendly, extremely intelligent, and highly capable AI assistant. Answer the user's questions clearly, accurately, and with beautiful layout and responsive markdown format."
   );
   const [useSearch, setUseSearch] = useState<boolean>(false);
-  const [modelName, setModelName] = useState<string>("gemini-3.5-flash");
+  const [modelName, setModelName] = useState<string>("Meta-Llama-3.3-70B-Instruct");
   
   // Multi-Provider settings
-  const [provider, setProvider] = useState<"gemini" | "groq" | "openai" | "deepseek" | "anthropic" | "sambanova">(() => {
-    return (localStorage.getItem("ai_active_provider") as any) || "gemini";
+  const [provider, setProvider] = useState<"groq" | "openai" | "deepseek" | "anthropic" | "sambanova">(() => {
+    const saved = localStorage.getItem("ai_active_provider");
+    if (saved && saved !== "gemini") return saved as any;
+    return "sambanova";
   });
 
   // Individual private key buffers per provider
   const [providerKeys, setProviderKeys] = useState<{
-    gemini: string;
     groq: string;
     openai: string;
     deepseek: string;
@@ -124,9 +114,7 @@ export default function App() {
       const saved = localStorage.getItem("ai_provider_keys");
       if (saved) return JSON.parse(saved);
     } catch (e) {}
-    const legacyKey = localStorage.getItem("ai_custom_api_key") || "";
     return {
-      gemini: legacyKey,
       groq: "",
       openai: "",
       deepseek: "",
@@ -140,7 +128,6 @@ export default function App() {
   // Sync state modifications to storage
   useEffect(() => {
     localStorage.setItem("ai_provider_keys", JSON.stringify(providerKeys));
-    localStorage.setItem("ai_custom_api_key", providerKeys.gemini); // retro compatibility
   }, [providerKeys]);
 
   useEffect(() => {
@@ -210,14 +197,28 @@ export default function App() {
   // Speech Recognition Ref
   const recognitionRef = useRef<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const [mobileTab, setMobileTab] = useState<"chat" | "sessions" | "metrics">("chat");
+  const [showScrollBottomBtn, setShowScrollBottomBtn] = useState<boolean>(false);
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const target = e.currentTarget;
+    const threshold = 180; // px threshold from bottom to hide scroll button
+    const isAbove = target.scrollHeight - target.scrollTop - target.clientHeight > threshold;
+    setShowScrollBottomBtn(isAbove);
+  };
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
 
   // Periodic visual hints during text generation loading
   const LOADING_MESSAGES = [
-    "Consulting Gemini Core...",
-    "Scanning documentation...",
-    "Structuring markdown...",
-    "Fact-checking references...",
-    "Almost ready..."
+    "Consulting AI Brain...",
+    "Scanning historical logs...",
+    "Structuring responsive layout...",
+    "Fact-checking reasoning...",
+    "Synthesizing results..."
   ];
 
   // Feedback Notification Timer
@@ -240,8 +241,10 @@ export default function App() {
           // Sync settings from active session
           setSystemInstruction(parsed[0].systemInstruction || "You are Subu AI, a friendly, extremely intelligent, and highly capable AI assistant. Answer the user's questions clearly, accurately, and with beautiful layout and responsive markdown format.");
           setUseSearch(parsed[0].useSearch || false);
-          setModelName(parsed[0].modelName || "gemini-3.5-flash");
-          setProvider(parsed[0].provider || "gemini");
+          const rawModel = parsed[0].modelName || "Meta-Llama-3.3-70B-Instruct";
+          setModelName(rawModel.includes("gemini") ? "Meta-Llama-3.3-70B-Instruct" : rawModel);
+          const rawProv = parsed[0].provider || "sambanova";
+          setProvider(rawProv === "gemini" ? "sambanova" : rawProv as any);
           return;
         }
       } catch (e) {
@@ -274,18 +277,22 @@ export default function App() {
     const updated = [newSession, ...sessions];
     saveSessionsToLocal(updated);
     setActiveSessionId(newId);
+    setMobileTab("chat");
     showFeedbackAction("Created a new chat session", "info");
   };
 
   // Sync settings when selecting deep changes or selecting a session
   const handleSessionSelect = (id: string) => {
     setActiveSessionId(id);
+    setMobileTab("chat");
     const session = sessions.find(s => s.id === id);
     if (session) {
       setSystemInstruction(session.systemInstruction || "You are Subu AI, a friendly, extremely intelligent, and highly capable AI assistant. Answer the user's questions clearly, accurately, and with beautiful layout and responsive markdown format.");
       setUseSearch(session.useSearch || false);
-      setModelName(session.modelName || "gemini-3.5-flash");
-      setProvider((session.provider as any) || "gemini");
+      const rawModel = session.modelName || "Meta-Llama-3.3-70B-Instruct";
+      setModelName(rawModel.includes("gemini") ? "Meta-Llama-3.3-70B-Instruct" : rawModel);
+      const rawProv = session.provider || "sambanova";
+      setProvider(rawProv === "gemini" ? "sambanova" : rawProv as any);
     }
   };
 
@@ -355,8 +362,9 @@ export default function App() {
 
   // Scroll smoothly to bottom
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [sessions, isLoading]);
+    scrollToBottom();
+    setShowScrollBottomBtn(false);
+  }, [activeSessionId, sessions, isLoading]);
 
   // Loading indicator animation timer
   useEffect(() => {
@@ -620,7 +628,7 @@ The workspace API Key has been reported as leaked or revoked by your service pro
   const activeSession = sessions.find(s => s.id === activeSessionId) || sessions[0];
 
   return (
-    <div className="mesh-bg flex flex-col md:flex-row h-screen w-full font-sans text-slate-100 p-4 md:p-6 gap-4 md:gap-6 overflow-hidden relative">
+    <div className="mesh-bg flex flex-col md:flex-row h-screen w-full font-sans text-slate-100 p-3 md:p-6 gap-3 md:gap-6 overflow-hidden relative">
       
       {/* Dynamic Feedback Notification Overlay */}
       <AnimatePresence>
@@ -645,8 +653,8 @@ The workspace API Key has been reported as leaked or revoked by your service pro
       </AnimatePresence>
 
       {/* Sidebar - Sessions and Controls */}
-      <aside className="w-full md:w-64 flex flex-col gap-4 flex-shrink-0">
-        <div className="glass-panel p-5 flex flex-col h-full rounded-2xl">
+      <aside className={`${mobileTab === "sessions" ? "flex flex-1 min-h-0" : "hidden"} md:flex md:flex-initial md:w-64 flex-col gap-4 flex-shrink-0`}>
+        <div className="glass-panel p-5 flex flex-col flex-1 h-full rounded-2xl">
           
           {/* Sidebar Header Title */}
           <div className="flex items-center gap-3 mb-6">
@@ -687,7 +695,7 @@ The workspace API Key has been reported as leaked or revoked by your service pro
           </div>
 
           {/* Sidebar Sessions List - Dynamic Storage Block */}
-          <div className="flex-1 overflow-y-auto space-y-2 pr-1 max-h-[160px] md:max-h-none">
+          <div className="flex-1 overflow-y-auto space-y-2 pr-1 max-h-[calc(100vh-280px)] md:max-h-none">
             <AnimatePresence initial={false}>
               {sessions.map((session) => {
                 const isActive = session.id === activeSessionId;
@@ -773,7 +781,7 @@ The workspace API Key has been reported as leaked or revoked by your service pro
       </aside>
 
       {/* Main Container - Chat Panel Interface */}
-      <main className="flex-1 flex flex-col glass-panel overflow-hidden rounded-2xl">
+      <main className={`${mobileTab === "chat" ? "flex flex-1 min-h-0" : "hidden"} md:flex flex-1 flex-col glass-panel overflow-hidden rounded-2xl relative`}>
         
         {/* Chat Header block with frosted glow aesthetic */}
         <header className="p-4 border-b border-white/5 flex flex-wrap justify-between items-center bg-white/5 gap-3">
@@ -786,7 +794,7 @@ The workspace API Key has been reported as leaked or revoked by your service pro
                 <h2 className="text-sm font-bold text-white tracking-tight">Subu AI</h2>
                 <span className="px-1.5 py-0.2 rounded bg-indigo-500/15 border border-indigo-400/20 text-[9px] font-mono text-indigo-300 font-medium font-bold">ACTIVE</span>
               </div>
-              <p className="text-[10px] text-slate-400 font-mono tracking-wide">Gemini Cognitive Core (Synchronized)</p>
+              <p className="text-[10px] text-slate-400 font-mono tracking-wide">{PROVIDERS_CONFIG[provider]?.name || "AI"} Core Engine</p>
             </div>
           </div>
 
@@ -804,8 +812,9 @@ The workspace API Key has been reported as leaked or revoked by your service pro
                 }}
                 className="bg-transparent border-none text-white font-mono font-medium outline-none cursor-pointer select-none"
               >
-                <option value="gemini-3.5-flash" className="bg-slate-900 text-white">flash-3.5</option>
-                <option value="gemini-3.1-pro-preview" className="bg-slate-900 text-white">pro-3.1</option>
+                {PROVIDERS_CONFIG[provider]?.models.map((m) => (
+                  <option key={m.id} value={m.id} className="bg-slate-900 text-white">{m.id.substring(0, 15)}</option>
+                ))}
               </select>
             </div>
 
@@ -832,7 +841,11 @@ The workspace API Key has been reported as leaked or revoked by your service pro
         </header>
 
         {/* Primary Message Stream Grid */}
-        <div className="flex-1 overflow-y-auto px-4 py-5 md:px-6">
+        <div 
+          ref={messagesContainerRef}
+          onScroll={handleScroll}
+          className="flex-1 overflow-y-auto px-4 py-5 md:px-6 scroll-smooth"
+        >
           <div className="max-w-3xl mx-auto space-y-6">
 
             {/* Real-time key state warning card */}
@@ -990,8 +1003,11 @@ The workspace API Key has been reported as leaked or revoked by your service pro
                 {activeSession.messages.map((msg) => {
                   const isUser = msg.role === "user";
                   return (
-                    <div
+                    <motion.div
                       key={msg.id}
+                      initial={{ opacity: 0, y: 15, scale: 0.98 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      transition={{ duration: 0.35, ease: "easeOut" }}
                       className={`flex gap-3 md:gap-4 ${isUser ? "justify-end" : "justify-start"}`}
                     >
                       {/* Avatar for Bot */}
@@ -1107,7 +1123,7 @@ The workspace API Key has been reported as leaked or revoked by your service pro
                           <User className="w-4.5 h-4.5" />
                         </div>
                       )}
-                    </div>
+                    </motion.div>
                   );
                 })}
 
@@ -1140,6 +1156,23 @@ The workspace API Key has been reported as leaked or revoked by your service pro
             <div ref={messagesEndRef} />
           </div>
         </div>
+
+        {/* Floating indicator to scroll to bottom with bouncy hover effect */}
+        <AnimatePresence>
+          {showScrollBottomBtn && (
+            <motion.button
+              initial={{ opacity: 0, scale: 0.8, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.8, y: 10 }}
+              onClick={scrollToBottom}
+              className="absolute bottom-28 right-6 md:right-8 p-2.5 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white shadow-2xl border border-indigo-500/30 z-20 cursor-pointer flex items-center justify-center gap-1.5 text-[11px] font-mono hover:scale-105 active:scale-95 transition-all outline-none font-semibold backdrop-blur-md"
+              title="Scroll to latest messages"
+            >
+              <ChevronDown className="w-3.5 h-3.5 animate-bounce" style={{ animationDuration: '2s' }} />
+              <span>Scroll to Bottom</span>
+            </motion.button>
+          )}
+        </AnimatePresence>
 
         {/* Text Composer with mic dictates and controls */}
         <div className="p-4 md:p-6 mt-auto">
@@ -1199,8 +1232,8 @@ The workspace API Key has been reported as leaked or revoked by your service pro
       </main>
 
       {/* Right Sidebar: Stats and Context (matches mock design to make it highly premium) */}
-      <aside className="w-full md:w-56 flex flex-col gap-4 flex-shrink-0">
-        <div className="glass-panel p-5 flex flex-col gap-5 rounded-2xl h-full justify-between">
+      <aside className={`${mobileTab === "metrics" ? "flex flex-1 min-h-0" : "hidden"} md:flex md:flex-initial md:w-56 flex-col gap-4 flex-shrink-0`}>
+        <div className="glass-panel p-5 flex flex-col gap-5 rounded-2xl flex-1 h-full justify-between overflow-y-auto">
           
           <div className="space-y-5">
             <p className="text-[10px] uppercase tracking-widest text-slate-400 font-mono">Metrics</p>
@@ -1260,6 +1293,42 @@ The workspace API Key has been reported as leaked or revoked by your service pro
         </div>
       </aside>
 
+      {/* Bottom Mobile Tab Bar (sticky at bottom on max-md) */}
+      <div className="md:hidden flex items-center justify-around h-16 w-full glass-panel rounded-2xl p-2 gap-1 border border-white/10 shrink-0">
+        {[
+          { id: "sessions", label: "Sessions", icon: MessageSquare },
+          { id: "chat", label: "Subu Chat", icon: Bot },
+          { id: "metrics", label: "Metrics", icon: Activity },
+        ].map((tab) => {
+          const Icon = tab.icon;
+          const isSelected = mobileTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => {
+                setMobileTab(tab.id as any);
+                showFeedbackAction(`Switched to ${tab.label} panel`, "info");
+              }}
+              className={`flex flex-col items-center justify-center flex-1 h-full rounded-xl transition-all relative ${
+                isSelected 
+                  ? "text-indigo-400 font-bold" 
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              {isSelected && (
+                <motion.div
+                  layoutId="mobile_tab_indicator"
+                  className="absolute inset-0 bg-white/5 rounded-xl border border-white/5"
+                  transition={{ type: "spring", stiffness: 380, damping: 30 }}
+                />
+              )}
+              <Icon className={`w-4.5 h-4.5 mb-0.5 relative z-10 transition-transform ${isSelected ? "scale-110 active:scale-100" : ""}`} />
+              <span className="text-[10px] font-mono tracking-wider relative z-10">{tab.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
       {/* Configurations Sliding Sidebar / Drawer - fully retrofitted with Glass parameters */}
       <AnimatePresence>
         {showSettingsDrawer && (
@@ -1316,12 +1385,11 @@ The workspace API Key has been reported as leaked or revoked by your service pro
                     }}
                     className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500/20"
                   >
-                    <option value="gemini" className="bg-slate-900 text-white">Google Gemini</option>
+                    <option value="sambanova" className="bg-slate-900 text-white">SambaNova Systems</option>
                     <option value="groq" className="bg-slate-900 text-white">Groq (Llama / Mixtral)</option>
                     <option value="openai" className="bg-slate-900 text-white">OpenAI ChatGPT</option>
                     <option value="deepseek" className="bg-slate-900 text-white">DeepSeek Core (V3 / R1)</option>
                     <option value="anthropic" className="bg-slate-900 text-white">Anthropic Claude</option>
-                    <option value="sambanova" className="bg-slate-900 text-white">SambaNova Systems</option>
                   </select>
                   <span className="text-[10px] text-slate-400 block leading-relaxed font-sans">
                     Choose your AI engine power source. Alternate providers are fully supported as key overrides.
