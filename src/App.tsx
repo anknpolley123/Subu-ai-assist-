@@ -4,7 +4,7 @@ import {
   Volume2, VolumeX, Mic, MicOff, Settings, History, Clock, 
   ArrowUpRight, ChevronRight, ChevronDown, ChevronUp, RefreshCw, 
   Globe, Wand2, Search, X, MessageSquare, Info, Star, ShieldAlert,
-  Activity, Shield, Laptop, CheckCircle
+  Activity, Shield, Laptop, CheckCircle, LogOut, Lock, Download
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import Markdown from "react-markdown";
@@ -19,6 +19,20 @@ const SUGGESTED_CHIPS = [
 ];
 
 const PROVIDERS_CONFIG = {
+  openrouter: {
+    name: "OpenRouter AI",
+    models: [
+      { id: "meta-llama/llama-3.3-70b-instruct", label: "Llama 3.3 70B Instruct (High Precision & Speed)" },
+      { id: "deepseek/deepseek-chat", label: "DeepSeek V3 (State of the Art)" },
+      { id: "deepseek/deepseek-r1", label: "DeepSeek R1 (Ultimate Reasoning)" },
+      { id: "google/gemini-2.5-flash", label: "Gemini 2.5 Flash" },
+      { id: "anthropic/claude-3.5-sonnet", label: "Claude 3.5 Sonnet" },
+    ],
+    placeholderKey: "Paste OpenRouter API Key...",
+    portalUrl: "https://openrouter.ai/keys",
+    portalName: "OpenRouter Keys Dashboard",
+    keyEnv: "OPENROUTER_API_KEY"
+  },
   sambanova: {
     name: "SambaNova Systems",
     models: [
@@ -83,23 +97,77 @@ const PROVIDERS_CONFIG = {
   },
 };
 
+export interface UserAccount {
+  username: string;
+  password?: string;
+  email?: string;
+  isGoogleUser: boolean;
+  profilePic?: string;
+}
+
 export default function App() {
+  // Authentication & Privacy States
+  const [activeUser, setActiveUser] = useState<UserAccount | null>(() => {
+    try {
+      const saved = localStorage.getItem("ai_active_user");
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      return null;
+    }
+  });
+
+  const [accounts, setAccounts] = useState<UserAccount[]>(() => {
+    try {
+      const saved = localStorage.getItem("ai_user_accounts");
+      if (saved) {
+        return JSON.parse(saved);
+      }
+      // Put a default test account so the user has standard examples right away
+      const defaults: UserAccount[] = [
+        { username: "ankon", password: "123", email: "ankonpolley@gmail.com", isGoogleUser: false, profilePic: "https://api.dicebear.com/7.x/bottts/svg?seed=ankon" }
+      ];
+      localStorage.setItem("ai_user_accounts", JSON.stringify(defaults));
+      return defaults;
+    } catch (e) {
+      return [];
+    }
+  });
+
+  const [authTab, setAuthTab] = useState<"login" | "signup">("login");
+  const [showGoogleOAuth, setShowGoogleOAuth] = useState<boolean>(false);
+  const [showAuthOverlay, setShowAuthOverlay] = useState<boolean>(false); // for guest lock screen popup
+  const [sessionSearchQuery, setSessionSearchQuery] = useState<string>("");
+  const [isGuestMode, setIsGuestMode] = useState<boolean>(() => {
+    return localStorage.getItem("ai_guest_mode") === "true";
+  });
+
+  // Form inputs
+  const [loginTerm, setLoginTerm] = useState<string>(""); // username or google email
+  const [loginPass, setLoginPass] = useState<string>("");
+  const [regUsername, setRegUsername] = useState<string>("");
+  const [regEmail, setRegEmail] = useState<string>("");
+  const [regPass, setRegPass] = useState<string>("");
+  const [regConfirmPass, setRegConfirmPass] = useState<string>("");
+  const [googleRegEmail, setGoogleRegEmail] = useState<string>("");
+  const [googleRegName, setGoogleRegName] = useState<string>("");
+  const [isGoogleSigningUp, setIsGoogleSigningUp] = useState<boolean>(false);
+
   // Session States
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string>("");
   
   // Custom Settings
   const [systemInstruction, setSystemInstruction] = useState<string>(
-    "You are Subu AI, a friendly, extremely intelligent, and highly capable AI assistant. Answer the user's questions clearly, accurately, and with beautiful layout and responsive markdown format."
+    "You are Subu AI, a friendly, extremely intelligent, and highly capable AI assistant. Your AI name is Subu AI, and your actual, real name is Subhashree (also referred to as Suboshree). Crucially, whenever the user greets you (such as saying 'hi', 'hello', 'hey', 'namaste', etc.), or when you introduce yourself, you must proudly introduce yourself by stating that your name is Subhashree (Subu AI), explaining that you are Subu AI but your real name is Subhashree or Suboshree, and ask how you can help them today. Answer all queries clearly, accurately, with beautiful layouts and responsive markdown formatting."
   );
   const [useSearch, setUseSearch] = useState<boolean>(false);
-  const [modelName, setModelName] = useState<string>("Meta-Llama-3.3-70B-Instruct");
+  const [modelName, setModelName] = useState<string>("meta-llama/llama-3.3-70b-instruct");
   
   // Multi-Provider settings
-  const [provider, setProvider] = useState<"groq" | "openai" | "deepseek" | "anthropic" | "sambanova">(() => {
+  const [provider, setProvider] = useState<"groq" | "openai" | "deepseek" | "anthropic" | "sambanova" | "openrouter">(() => {
     const saved = localStorage.getItem("ai_active_provider");
     if (saved && saved !== "gemini") return saved as any;
-    return "sambanova";
+    return "openrouter";
   });
 
   // Individual private key buffers per provider
@@ -109,10 +177,15 @@ export default function App() {
     deepseek: string;
     anthropic: string;
     sambanova: string;
+    openrouter: string;
   }>(() => {
     try {
       const saved = localStorage.getItem("ai_provider_keys");
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (!parsed.openrouter) parsed.openrouter = "";
+        return parsed;
+      }
     } catch (e) {}
     return {
       groq: "",
@@ -120,6 +193,7 @@ export default function App() {
       deepseek: "",
       anthropic: "",
       sambanova: "",
+      openrouter: "",
     };
   });
 
@@ -193,6 +267,36 @@ export default function App() {
   const [editingTitleValue, setEditingTitleValue] = useState<string>("");
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [loadingStatusIndex, setLoadingStatusIndex] = useState<number>(0);
+  const [isZipping, setIsZipping] = useState<boolean>(false);
+
+  const handleDownloadProject = async () => {
+    try {
+      setIsZipping(true);
+      showFeedbackAction("Assembling full workspace ZIP...", "info");
+
+      const response = await fetch("/api/download-project");
+      if (!response.ok) {
+        throw new Error("Could not package the workspace.");
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", "subu-ai-project-workspace.zip");
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode?.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      showFeedbackAction("Workspace ZIP downloaded successfully!", "success");
+    } catch (error: any) {
+      console.error("Download error:", error);
+      showFeedbackAction(error.message || "Failed to package project workspace.", "error");
+    } finally {
+      setIsZipping(false);
+    }
+  };
   
   // Speech Recognition Ref
   const recognitionRef = useRef<any>(null);
@@ -229,36 +333,201 @@ export default function App() {
     }, 4000);
   };
 
-  // Load chat sessions from localStorage on startup
+  // Load chat sessions from localStorage when activeUser changes
   useEffect(() => {
-    const savedSessions = localStorage.getItem("ai_scholar_chats");
+    const key = activeUser 
+      ? `ai_scholar_chats_${activeUser.username.toLowerCase()}` 
+      : "ai_scholar_chats_guest";
+      
+    const savedSessions = localStorage.getItem(key);
     if (savedSessions) {
       try {
         const parsed = JSON.parse(savedSessions);
         if (Array.isArray(parsed) && parsed.length > 0) {
           setSessions(parsed);
           setActiveSessionId(parsed[0].id);
+          
           // Sync settings from active session
-          setSystemInstruction(parsed[0].systemInstruction || "You are Subu AI, a friendly, extremely intelligent, and highly capable AI assistant. Answer the user's questions clearly, accurately, and with beautiful layout and responsive markdown format.");
+          const sys = parsed[0].systemInstruction || "You are Subu AI, a friendly, extremely intelligent, and highly capable AI assistant. Your AI name is Subu AI, and your actual, real name is Subhashree (also referred to as Suboshree). Crucially, whenever the user greets you (such as saying 'hi', 'hello', 'hey', 'namaste', etc.), or when you introduce yourself, you must proudly introduce yourself by stating that your name is Subhashree (Subu AI), explaining that you are Subu AI but your real name is Subhashree or Suboshree, and ask how you can help them today. Answer all queries clearly, accurately, with beautiful layouts and responsive markdown formatting.";
+          setSystemInstruction(sys);
           setUseSearch(parsed[0].useSearch || false);
-          const rawModel = parsed[0].modelName || "Meta-Llama-3.3-70B-Instruct";
-          setModelName(rawModel.includes("gemini") ? "Meta-Llama-3.3-70B-Instruct" : rawModel);
-          const rawProv = parsed[0].provider || "sambanova";
-          setProvider(rawProv === "gemini" ? "sambanova" : rawProv as any);
+          const rawModel = parsed[0].modelName || "meta-llama/llama-3.3-70b-instruct";
+          setModelName((rawModel.includes("gemini") || rawModel === "Meta-Llama-3.3-70B-Instruct") ? "meta-llama/llama-3.3-70b-instruct" : rawModel);
+          const rawProv = parsed[0].provider || "openrouter";
+          setProvider((rawProv === "gemini" || rawProv === "sambanova") ? "openrouter" : rawProv as any);
           return;
         }
       } catch (e) {
         console.error("Failed to parse saved chats", e);
       }
     }
-    // Setup initial default session if nothing saved
-    createNewSession();
-  }, []);
+    
+    // Setup initial default session if nothing saved or user switched
+    setSessions([]);
+    const newId = `session_${Date.now()}`;
+    const newSession: ChatSession = {
+      id: newId,
+      title: "Subu Chat 1",
+      messages: [],
+      systemInstruction: "You are Subu AI, a friendly, extremely intelligent, and highly capable AI assistant. Your AI name is Subu AI, and your actual, real name is Subhashree (also referred to as Suboshree). Crucially, whenever the user greets you (such as saying 'hi', 'hello', 'hey', 'namaste', etc.), or when you introduce yourself, you must proudly introduce yourself by stating that your name is Subhashree (Subu AI), explaining that you are Subu AI but your real name is Subhashree or Suboshree, and ask how you can help them today. Answer all queries clearly, accurately, with beautiful layouts and responsive markdown formatting.",
+      useSearch: false,
+      modelName: "meta-llama/llama-3.3-70b-instruct",
+      provider: "openrouter",
+      createdAt: new Date().toISOString()
+    };
+    setSessions([newSession]);
+    setActiveSessionId(newId);
+  }, [activeUser]);
 
   // Save sessions to localStorage whenever they change
   const saveSessionsToLocal = (updatedSessions: ChatSession[]) => {
     setSessions(updatedSessions);
-    localStorage.setItem("ai_scholar_chats", JSON.stringify(updatedSessions));
+    const key = activeUser 
+      ? `ai_scholar_chats_${activeUser.username.toLowerCase()}` 
+      : "ai_scholar_chats_guest";
+    localStorage.setItem(key, JSON.stringify(updatedSessions));
+  };
+
+  // Register Credentials
+  const handleRegisterCredentials = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!regUsername.trim() || !regPass) {
+      showFeedbackAction("Username and Password are required", "error");
+      return;
+    }
+    if (regPass !== regConfirmPass) {
+      showFeedbackAction("Passwords do not match", "error");
+      return;
+    }
+    
+    const exists = accounts.some(acc => acc.username.toLowerCase() === regUsername.trim().toLowerCase());
+    if (exists) {
+      showFeedbackAction("Username is already taken", "error");
+      return;
+    }
+
+    const newUser: UserAccount = {
+      username: regUsername.trim(),
+      password: regPass,
+      email: regEmail.trim() || undefined,
+      isGoogleUser: false,
+      profilePic: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(regUsername.trim())}`
+    };
+
+    const newAccounts = [...accounts, newUser];
+    setAccounts(newAccounts);
+    localStorage.setItem("ai_user_accounts", JSON.stringify(newAccounts));
+
+    // Auto-login
+    handleLoginSuccess(newUser);
+    showFeedbackAction(`Account registered successfully as @${newUser.username}!`, "success");
+
+    // Clear inputs
+    setRegUsername("");
+    setRegEmail("");
+    setRegPass("");
+    setRegConfirmPass("");
+  };
+
+  // Login Credentials
+  const handleLoginCredentials = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!loginTerm.trim() || !loginPass) {
+      showFeedbackAction("Username/Email and Password are required", "error");
+      return;
+    }
+
+    const user = accounts.find(acc => 
+      (acc.username.toLowerCase() === loginTerm.trim().toLowerCase() || (acc.email && acc.email.toLowerCase() === loginTerm.trim().toLowerCase())) &&
+      acc.password === loginPass
+    );
+
+    if (!user) {
+      showFeedbackAction("Invalid Username or Password", "error");
+      return;
+    }
+
+    handleLoginSuccess(user);
+    showFeedbackAction(`Welcome back, ${user.username}! Secure connection isolated.`, "success");
+    setLoginTerm("");
+    setLoginPass("");
+  };
+
+  // Google OAuth flow simulation select
+  const handleGoogleSelectAccount = (email: string, displayName: string) => {
+    // Check if user is already registered under this google account
+    const existing = accounts.find(acc => acc.email?.toLowerCase() === email.toLowerCase() && acc.isGoogleUser);
+    
+    if (existing) {
+      // Direct login
+      handleLoginSuccess(existing);
+      showFeedbackAction(`Logged in with Google as ${existing.username}`, "success");
+      setShowGoogleOAuth(false);
+    } else {
+      // Need to register with Google (choose username & set password as requested)
+      setGoogleRegEmail(email);
+      setGoogleRegName(displayName);
+      setRegUsername(displayName.toLowerCase().replace(/\s+/g, ""));
+      setIsGoogleSigningUp(true);
+      setShowGoogleOAuth(false);
+    }
+  };
+
+  // Complete Google Registration
+  const handleCompleteGoogleRegistration = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!regUsername.trim() || !regPass) {
+      showFeedbackAction("Username and Password are required for setup.", "error");
+      return;
+    }
+    const exists = accounts.some(acc => acc.username.toLowerCase() === regUsername.trim().toLowerCase());
+    if (exists) {
+      showFeedbackAction("Username is already taken", "error");
+      return;
+    }
+
+    const newUser: UserAccount = {
+      username: regUsername.trim(),
+      password: regPass,
+      email: googleRegEmail,
+      isGoogleUser: true,
+      profilePic: `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(googleRegEmail)}`
+    };
+
+    const newAccounts = [...accounts, newUser];
+    setAccounts(newAccounts);
+    localStorage.setItem("ai_user_accounts", JSON.stringify(newAccounts));
+
+    handleLoginSuccess(newUser);
+    showFeedbackAction(`Google Sign-up complete! Welcome @${newUser.username}`, "success");
+
+    // Clear google sign-up buffers
+    setIsGoogleSigningUp(false);
+    setGoogleRegEmail("");
+    setGoogleRegName("");
+    setRegUsername("");
+    setRegPass("");
+  };
+
+  const handleLoginSuccess = (user: UserAccount) => {
+    setActiveUser(user);
+    setIsGuestMode(false);
+    localStorage.removeItem("ai_guest_mode");
+    localStorage.setItem("ai_active_user", JSON.stringify(user));
+  };
+
+  // Logout
+  const handleLogout = () => {
+    setIsGuestMode(false);
+    localStorage.removeItem("ai_guest_mode");
+    if (activeUser) {
+      const u = activeUser.username;
+      setActiveUser(null);
+      localStorage.removeItem("ai_active_user");
+      showFeedbackAction(`User @${u} securely logged out. Local privacy locked.`, "info");
+    } else {
+      showFeedbackAction("Logged out of Guest operator mode.", "info");
+    }
   };
 
   // Create custom new session
@@ -287,12 +556,12 @@ export default function App() {
     setMobileTab("chat");
     const session = sessions.find(s => s.id === id);
     if (session) {
-      setSystemInstruction(session.systemInstruction || "You are Subu AI, a friendly, extremely intelligent, and highly capable AI assistant. Answer the user's questions clearly, accurately, and with beautiful layout and responsive markdown format.");
+      setSystemInstruction(session.systemInstruction || "You are Subu AI, a friendly, extremely intelligent, and highly capable AI assistant. Your AI name is Subu AI, and your actual, real name is Subhashree (also referred to as Suboshree). Crucially, whenever the user greets you (such as saying 'hi', 'hello', 'hey', 'namaste', etc.), or when you introduce yourself, you must proudly introduce yourself by stating that your name is Subhashree (Subu AI), explaining that you are Subu AI but your real name is Subhashree or Suboshree, and ask how you can help them today. Answer all queries clearly, accurately, with beautiful layouts and responsive markdown formatting.");
       setUseSearch(session.useSearch || false);
-      const rawModel = session.modelName || "Meta-Llama-3.3-70B-Instruct";
-      setModelName(rawModel.includes("gemini") ? "Meta-Llama-3.3-70B-Instruct" : rawModel);
-      const rawProv = session.provider || "sambanova";
-      setProvider(rawProv === "gemini" ? "sambanova" : rawProv as any);
+      const rawModel = session.modelName || "meta-llama/llama-3.3-70b-instruct";
+      setModelName((rawModel.includes("gemini") || rawModel === "Meta-Llama-3.3-70B-Instruct") ? "meta-llama/llama-3.3-70b-instruct" : rawModel);
+      const rawProv = session.provider || "openrouter";
+      setProvider((rawProv === "gemini" || rawProv === "sambanova") ? "openrouter" : rawProv as any);
     }
   };
 
@@ -308,8 +577,10 @@ export default function App() {
   };
 
   // Delete chat session
-  const deleteSession = (id: string, event: React.MouseEvent) => {
-    event.stopPropagation();
+  const deleteSession = (id: string, event?: React.MouseEvent | any) => {
+    if (event && typeof event.stopPropagation === "function") {
+      event.stopPropagation();
+    }
     const updated = sessions.filter((s) => s.id !== id);
     
     if (updated.length === 0) {
@@ -585,21 +856,24 @@ export default function App() {
       // Friendly leak or verification guidance
       const rawErrorText = String(err.message || "");
       let errorText = rawErrorText;
+      const providerInfo = PROVIDERS_CONFIG[provider] || { name: "AI", portalName: "Console", portalUrl: "#", keyEnv: "API_KEY" };
       if (
         rawErrorText.toLowerCase().includes("leaked") || 
         rawErrorText.toLowerCase().includes("api key") || 
         rawErrorText.toLowerCase().includes("permission_denied") || 
         rawErrorText.toLowerCase().includes("403") || 
-        rawErrorText.toLowerCase().includes("key was reported as leaked")
+        rawErrorText.toLowerCase().includes("key was reported as leaked") ||
+        rawErrorText.toLowerCase().includes("not configured") ||
+        rawErrorText.toLowerCase().includes("not set")
       ) {
-        errorText = `⚠️ **Gemini API Error (Authentication Terminated):**
-The workspace API Key has been reported as leaked or revoked by your service provider.
+        errorText = `⚠️ **${providerInfo.name} API Authentication Error:**
+The API Key configuration for **${providerInfo.name}** is missing, incorrect, restricted, or has been reported as revoked by the provider.
 
-**To restore full system capabilities, you can either:**
-1. **Configure in AI Studio**: Click **Settings** (gear icon) in the upper right-hand corner of the **Google AI Studio window**, navigate to the **Secrets** panel, and replace the \`GEMINI_API_KEY\` with a newly generated stable key. (Recommended)
-2. **Dynamic Key Override**: Open the **AI Persona & Settings** panel inside this application's sidebar, and paste a custom Gemini API Key into the **API KEY OVERRIDE** field. This stores the key securely in your local browser storage and uses it live. You can generate a free Gemini key in [Google AI Studio Console](https://aistudio.google.com/).`;
+**To restore full chatting capabilities immediately:**
+1. **Dynamic Key Override (Easiest)**: Open the **Settings** panel (via the gear icon in the top header), and paste your custom API key in the **${providerInfo.name.toUpperCase()} KEY OVERRIDE** field. This stores the key securely on your local browser's storage. You can generate or obtain your key safely from the [${providerInfo.portalName}](${providerInfo.portalUrl}).
+2. **Environment Variable**: Alternatively, verify or define the \`${providerInfo.keyEnv}\` environment variable on your back-end runtime platform.`;
       } else {
-        errorText = `⚠️ **API Error:** ${rawErrorText || "Unable to retrieve answers. Please check your network and make sure your GEMINI_API_KEY is configured in the Settings > Secrets panel."}`;
+        errorText = `⚠️ **API Execution Error:** ${rawErrorText || `An issue occurred while calling the ${providerInfo.name} server. Please double-check your network status and confirm your ${providerInfo.keyEnv} is correctly set.`}`;
       }
 
       // Create failure error message in conversation
@@ -627,9 +901,441 @@ The workspace API Key has been reported as leaked or revoked by your service pro
 
   const activeSession = sessions.find(s => s.id === activeSessionId) || sessions[0];
 
+  // Dynamic context status calculations
+  const messageCount = activeSession?.messages ? activeSession.messages.length : 0;
+  const activeCharCount = activeSession?.messages 
+    ? activeSession.messages.reduce((sum, m) => sum + (m.content || "").length, 0)
+    : 0;
+  const sysCharCount = systemInstruction ? systemInstruction.length : 0;
+
   return (
     <div className="mesh-bg flex flex-col md:flex-row h-screen w-full font-sans text-slate-100 p-3 md:p-6 gap-3 md:gap-6 overflow-hidden relative">
-      
+
+      {/* Simulated Google Account Selector Dialog */}
+      <AnimatePresence>
+        {showGoogleOAuth && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white border border-slate-200 rounded-lg max-w-sm w-full p-6 text-slate-800 shadow-2xl relative select-none"
+            >
+              <button 
+                onClick={() => setShowGoogleOAuth(false)}
+                className="absolute top-4 right-4 p-1 rounded-full hover:bg-slate-100 text-slate-400"
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              <div className="text-center mb-6">
+                {/* Google logo colored letters */}
+                <div className="text-2xl font-bold tracking-tight mb-2 select-none">
+                  <span className="text-blue-500">G</span>
+                  <span className="text-red-500">o</span>
+                  <span className="text-yellow-500">o</span>
+                  <span className="text-blue-500">g</span>
+                  <span className="text-green-500">l</span>
+                  <span className="text-red-400">e</span>
+                </div>
+                <h3 className="text-base font-semibold text-slate-900 leading-tight">Choose an account</h3>
+                <p className="text-xs text-slate-500 mt-1">to continue to <strong className="text-indigo-600">Subu AI</strong></p>
+              </div>
+
+              {/* Accounts list */}
+              <div className="space-y-2.5 max-h-56 overflow-y-auto mb-5 pr-1">
+                <button
+                  onClick={() => handleGoogleSelectAccount("ankonpolley@gmail.com", "Ankon Polley")}
+                  className="w-full p-2.5 rounded-lg border border-slate-100 hover:bg-slate-50 transition-colors flex items-center gap-3 text-left group"
+                >
+                  <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-800 font-bold flex items-center justify-center text-xs select-none shadow-sm capitalize border border-slate-200">
+                    AP
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <span className="font-semibold text-xs text-slate-800 block truncate leading-none">Ankon Polley</span>
+                    <span className="text-[10px] text-slate-400 block truncate">ankonpolley@gmail.com</span>
+                  </div>
+                  <ChevronRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-slate-500 transition-colors shrink-0" />
+                </button>
+
+                <button
+                  onClick={() => handleGoogleSelectAccount("suboshree.ghosh@gmail.com", "Subu Assistant")}
+                  className="w-full p-2.5 rounded-lg border border-slate-100 hover:bg-slate-50 transition-colors flex items-center gap-3 text-left group"
+                >
+                  <div className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 bg-indigo-500/10 font-bold flex items-center justify-center text-xs select-none shadow-sm capitalize border border-slate-100">
+                    SG
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <span className="font-semibold text-xs text-slate-800 block truncate leading-none">Suboshree Ghosh (Subu AI)</span>
+                    <span className="text-[10px] text-slate-400 block truncate">suboshree.ghosh@gmail.com</span>
+                  </div>
+                  <ChevronRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-slate-500 transition-colors shrink-0" />
+                </button>
+
+                {/* Add new custom email mock option */}
+                <div className="border-t border-slate-100 pt-2.5 mt-2.5">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase block tracking-wider mb-2 font-mono">Use another google email</span>
+                  <div className="flex gap-1.5">
+                    <input 
+                      type="email"
+                      id="custom_gmail_input"
+                      placeholder="e.g. user@gmail.com"
+                      className="flex-1 px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-mono outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          const val = (e.currentTarget as HTMLInputElement).value.trim();
+                          if (val && val.includes("@")) {
+                            handleGoogleSelectAccount(val, val.split("@")[0]);
+                          } else {
+                            showFeedbackAction("Please enter a valid mock Gmail address", "error");
+                          }
+                        }
+                      }}
+                    />
+                    <button
+                      onClick={() => {
+                        const el = document.getElementById("custom_gmail_input") as HTMLInputElement;
+                        const val = el?.value?.trim();
+                        if (val && val.includes("@")) {
+                          handleGoogleSelectAccount(val, val.split("@")[0]);
+                        } else {
+                          showFeedbackAction("Please enter a valid mock Gmail address", "error");
+                        }
+                      }}
+                      className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-lg active:scale-95 transition-all outline-none"
+                    >
+                      Use
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="text-[10px] text-center text-slate-400 leading-normal border-t border-slate-100 pt-3">
+                To keep this sandbox secure, this is a simulated secure OAuth dialog that securely binds to your browser's private local state. No details are shared externally.
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Immersive Imprison Auth Gate Screen */}
+      <AnimatePresence>
+        {(!activeUser && !isGuestMode) && (
+          <div className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-xl">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 15 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              className="w-full max-w-md bg-slate-900 border border-white/10 rounded-2xl p-6 md:p-8 shadow-2xl relative select-none flex flex-col gap-4 text-left"
+            >
+              {/* Portal Header with secure seal */}
+              <div className="text-center pb-2">
+                <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 border border-indigo-400/25 text-indigo-400 flex items-center justify-center mx-auto mb-3 shadow-lg shadow-indigo-500/5 animate-pulse">
+                  <Shield className="w-6 h-6" />
+                </div>
+                <h2 className="text-lg md:text-xl font-bold text-white tracking-tight">Privacy Guarded Portal</h2>
+                <p className="text-xs text-slate-400 mt-1 max-w-xs mx-auto leading-relaxed">
+                  Subu AI isolates separate message streams on your browser. Sign in or register to secure your connection.
+                </p>
+              </div>
+
+              {/* Active form views depending on setup route */}
+              {isGoogleSigningUp ? (
+                /* Google Username and Password completion (Sign up with Google complete) */
+                <form onSubmit={handleCompleteGoogleRegistration} className="space-y-4">
+                  <div className="p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-xl">
+                    <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-indigo-300 block mb-1">GOOGLE EMAIL DETECTED</span>
+                    <p className="text-xs font-semibold text-slate-200 font-mono truncate">{googleRegEmail}</p>
+                    <span className="text-[9px] text-slate-400 block mt-1">To finish registering, let's pick an alias username and set a secure password.</span>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-mono uppercase font-bold tracking-wider text-slate-400 block">Choose Username</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={regUsername}
+                      onChange={(e) => setRegUsername(e.target.value)}
+                      placeholder="e.g. ankon"
+                      className="w-full bg-black/40 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500/30"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-mono uppercase font-bold tracking-wider text-slate-400 block">Set Password (local lock)</label>
+                    <input 
+                      type="password" 
+                      required
+                      value={regPass}
+                      onChange={(e) => setRegPass(e.target.value)}
+                      placeholder="••••••••"
+                      className="w-full bg-black/40 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500/30 font-mono"
+                    />
+                  </div>
+
+                  <div className="flex gap-2 pt-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsGoogleSigningUp(false);
+                        setGoogleRegEmail("");
+                        setGoogleRegName("");
+                      }}
+                      className="flex-1 bg-white/5 hover:bg-white/10 border border-white/5 py-2.5 rounded-xl text-xs font-semibold text-slate-350 active:scale-95 transition-all text-center"
+                    >
+                      Cancel Setup
+                    </button>
+                    <button
+                      type="submit"
+                      className="flex-1 bg-indigo-500 hover:bg-indigo-600 text-white font-semibold text-xs py-2.5 rounded-xl shadow-lg shadow-indigo-600/20 active:translate-y-0.5 transition-all text-center"
+                    >
+                      Complete & Launch
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                /* Regular accounts and OAuth selector tabs */
+                <div className="space-y-4">
+                  {/* Sliding Tabs Indicator */}
+                  <div className="grid grid-cols-2 bg-black/40 p-1 rounded-xl border border-white/5 relative">
+                    <button
+                      onClick={() => setAuthTab("login")}
+                      className={`py-2 text-xs font-bold font-mono tracking-wider rounded-lg relative z-10 transition-colors uppercase ${
+                        authTab === "login" ? "text-indigo-300" : "text-slate-400 hover:text-slate-200"
+                      }`}
+                    >
+                      {authTab === "login" && (
+                        <motion.div
+                          layoutId="auth_tab_pill"
+                          className="absolute inset-0 bg-white/5 rounded-lg border border-white/5"
+                        />
+                      )}
+                      <span>SIGN IN</span>
+                    </button>
+
+                    <button
+                      onClick={() => setAuthTab("signup")}
+                      className={`py-2 text-xs font-bold font-mono tracking-wider rounded-lg relative z-10 transition-colors uppercase ${
+                        authTab === "signup" ? "text-indigo-300" : "text-slate-400 hover:text-slate-200"
+                      }`}
+                    >
+                      {authTab === "signup" && (
+                        <motion.div
+                          layoutId="auth_tab_pill"
+                          className="absolute inset-0 bg-white/5 rounded-lg border border-white/5"
+                        />
+                      )}
+                      <span>CREATE VAULT</span>
+                    </button>
+                  </div>
+
+                  {/* Form fields depending on active tab */}
+                  {authTab === "login" ? (
+                    <form onSubmit={handleLoginCredentials} className="space-y-3.5">
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-mono uppercase font-bold tracking-widest text-slate-400 block">Username or Google Email</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. ankon or custom name"
+                          value={loginTerm}
+                          onChange={(e) => setLoginTerm(e.target.value)}
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-3.5 py-2 text-xs text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500/20 font-sans"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-mono uppercase font-bold tracking-widest text-slate-400 block">Secure Password</label>
+                        <input
+                          type="password"
+                          required
+                          placeholder="••••••••"
+                          value={loginPass}
+                          onChange={(e) => setLoginPass(e.target.value)}
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-3.5 py-2 text-xs text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500/20 font-mono"
+                        />
+                      </div>
+
+                      <button
+                        type="submit"
+                        className="w-full bg-indigo-500 hover:bg-indigo-600 active:translate-y-0.5 text-white font-bold tracking-wider uppercase text-[10px] h-10 rounded-xl shadow-lg shadow-indigo-600/10 cursor-pointer flex items-center justify-center gap-1.5 transition-all text-center"
+                      >
+                        <Lock className="w-3.5 h-3.5" />
+                        <span>Enter Secure Portal</span>
+                      </button>
+
+                      {/* Divider line */}
+                      <div className="flex items-center gap-3 text-slate-500 py-1">
+                        <div className="flex-1 h-px bg-white/5" />
+                        <span className="text-[9px] font-mono uppercase tracking-widest font-bold">OR</span>
+                        <div className="flex-1 h-px bg-white/5" />
+                      </div>
+
+                      {/* Google Sign In action */}
+                      <button
+                        type="button"
+                        onClick={() => setShowGoogleOAuth(true)}
+                        className="w-full h-10 bg-white hover:bg-slate-100 text-slate-800 font-bold text-xs rounded-xl flex items-center justify-center gap-2.5 transition-all shadow-md outline-none cursor-pointer"
+                      >
+                        {/* Custom Google inline icon */}
+                        <div className="w-5 h-5 flex items-center justify-center bg-white border border-slate-100 rounded-full select-none leading-none pt-0.5 font-bold font-sans text-sm">
+                          <span className="text-blue-500 leading-none">G</span>
+                        </div>
+                        <span>Login with Google account</span>
+                      </button>
+                    </form>
+                  ) : (
+                    /* SIGN UP / CREATE VAULT FORM */
+                    <form onSubmit={handleRegisterCredentials} className="space-y-3">
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-mono uppercase font-bold tracking-widest text-slate-400 block">CHOOSE USERNAME</label>
+                        <input
+                          type="text"
+                          required
+                          value={regUsername}
+                          onChange={(e) => setRegUsername(e.target.value)}
+                          placeholder="e.g. ankon"
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-3.5 py-1.8 text-xs text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500/20 font-sans"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-mono uppercase font-bold tracking-widest text-slate-400 block">EMAIL ADDRESS (optional)</label>
+                        <input
+                          type="email"
+                          value={regEmail}
+                          onChange={(e) => setRegEmail(e.target.value)}
+                          placeholder="e.g. name@g.com"
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-3.5 py-1.8 text-xs text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500/20 font-sans"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-mono uppercase font-bold tracking-widest text-slate-400 block">PASSWORD</label>
+                        <input
+                          type="password"
+                          required
+                          value={regPass}
+                          onChange={(e) => setRegPass(e.target.value)}
+                          placeholder="••••••••"
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-3.5 py-1.8 text-xs text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500/20 font-mono"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-mono uppercase font-bold tracking-widest text-slate-400 block">CONFIRM PASSWORD</label>
+                        <input
+                          type="password"
+                          required
+                          value={regConfirmPass}
+                          onChange={(e) => setRegConfirmPass(e.target.value)}
+                          placeholder="••••••••"
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-3.5 py-1.8 text-xs text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500/20 font-mono"
+                        />
+                      </div>
+
+                      <button
+                        type="submit"
+                        className="w-full bg-indigo-500 hover:bg-indigo-600 active:translate-y-0.5 text-white font-bold tracking-wider uppercase text-[10px] h-9.5 rounded-xl shadow-lg shadow-indigo-600/10 cursor-pointer flex items-center justify-center gap-1.5 transition-all text-center mt-2"
+                      >
+                        <span>Create Local Privacy Vault</span>
+                      </button>
+
+                      {/* Divider line */}
+                      <div className="flex items-center gap-3 text-slate-500 py-0.5">
+                        <div className="flex-1 h-px bg-white/5" />
+                        <span className="text-[9px] font-mono uppercase tracking-widest font-bold">OR</span>
+                        <div className="flex-1 h-px bg-white/5" />
+                      </div>
+
+                      {/* Google Sign Up action */}
+                      <button
+                        type="button"
+                        onClick={() => setShowGoogleOAuth(true)}
+                        className="w-full h-9.5 bg-white hover:bg-slate-100 text-slate-800 font-bold text-xs rounded-xl flex items-center justify-center gap-2.5 transition-all shadow-md outline-none cursor-pointer"
+                      >
+                        {/* Custom Google inline icon */}
+                        <div className="w-5 h-5 flex items-center justify-center bg-white border border-slate-100 rounded-full select-none leading-none pt-0.5 font-bold font-sans text-sm animate-pulse-slow">
+                          <span className="text-blue-500 leading-none">G</span>
+                        </div>
+                        <span>Sign up with Google account</span>
+                      </button>
+                    </form>
+                  )}
+                </div>
+              )}
+
+              {/* Continue As Guest Option with storage locked warning */}
+              <div className="border-t border-white/5 pt-3.5 text-center flex flex-col gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsGuestMode(true);
+                    localStorage.setItem("ai_guest_mode", "true");
+                    showFeedbackAction("Browsing in Public Guest mode. Chats will not be permanently private.", "info");
+                  }}
+                  className="text-[11px] text-slate-400 hover:text-indigo-400 font-semibold cursor-pointer select-none underline decoration-dotted transition-colors hover:decoration-solid"
+                >
+                  🚀 Continue as Guest Operator (No account needed)
+                </button>
+                <p className="text-[8.5px] text-slate-500 max-w-xs mx-auto leading-normal">
+                  Guest Mode runs in a shared local layout. Creating an isolated account guarantees complete log confidentiality between users.
+                </p>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Guest Lock overlay for secure actions representation */}
+      <AnimatePresence>
+        {showAuthOverlay && (
+          <div className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="w-full max-w-sm bg-slate-900 border border-white/10 rounded-2xl p-6 shadow-2xl relative text-left"
+            >
+              <button 
+                onClick={() => setShowAuthOverlay(false)}
+                className="absolute top-4 right-4 p-1.5 rounded-lg hover:bg-white/10 text-slate-400"
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              <div className="text-center pb-2">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-400/20 text-amber-400 flex items-center justify-center mx-auto mb-3">
+                  <Lock className="w-5 h-5" />
+                </div>
+                <h3 className="text-sm font-bold text-white tracking-tight">Access Secure Vault</h3>
+                <p className="text-xs text-slate-400 mt-1">Please sign in to open separate private vaults and guard your history like a real website.</p>
+              </div>
+
+              <div className="space-y-3 mt-4">
+                <button
+                  onClick={() => {
+                    setAuthTab("login");
+                    setShowAuthOverlay(false);
+                  }}
+                  className="w-full py-2 bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-semibold rounded-xl text-center active:scale-95 transition-all outline-none"
+                >
+                  Secure Log In
+                </button>
+                <button
+                  onClick={() => {
+                    setAuthTab("signup");
+                    setShowAuthOverlay(false);
+                  }}
+                  className="w-full py-2 bg-white/5 hover:bg-white/10 border border-white/5 text-slate-200 text-xs font-semibold rounded-xl text-center active:scale-95 transition-all outline-none"
+                >
+                  Register New Account
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Dynamic Feedback Notification Overlay */}
       <AnimatePresence>
         {feedback && (
@@ -657,7 +1363,7 @@ The workspace API Key has been reported as leaked or revoked by your service pro
         <div className="glass-panel p-5 flex flex-col flex-1 h-full rounded-2xl">
           
           {/* Sidebar Header Title */}
-          <div className="flex items-center gap-3 mb-6">
+          <div className="flex items-center gap-3 mb-4">
             <div className="w-10 h-10 rounded-xl bg-indigo-500 hover:bg-indigo-600 transition-colors flex items-center justify-center text-white font-bold shadow-lg shadow-indigo-500/20">
               SU
             </div>
@@ -666,6 +1372,61 @@ The workspace API Key has been reported as leaked or revoked by your service pro
               <span className="text-[10px] uppercase tracking-widest text-[#a5b4fc]/70 font-mono font-medium block">INTELLIGENT COMPANION</span>
             </div>
           </div>
+
+          {/* Secure Privacy Account status bar */}
+          {activeUser ? (
+            <div className="glass-card mb-4 p-3 rounded-xl border border-indigo-500/10 flex items-center justify-between">
+              <div className="flex items-center gap-2 max-w-[80%]">
+                <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-500 to-purple-600 text-white flex items-center justify-center font-bold text-xs ring-2 ring-indigo-500/20 flex-shrink-0 overflow-hidden">
+                  {activeUser.profilePic ? (
+                    <img src={activeUser.profilePic} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                  ) : (
+                    activeUser.username.substring(0, 2).toUpperCase()
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1">
+                    <span className="font-bold text-slate-100 text-xs truncate block">{activeUser.username}</span>
+                    {activeUser.isGoogleUser && (
+                      <span className="text-[7px] bg-indigo-500/20 text-[#a5b4fc] px-1 py-0.2 rounded font-mono uppercase font-bold shrink-0">G</span>
+                    )}
+                  </div>
+                  <span className="text-[8px] text-emerald-400 font-mono flex items-center gap-1 font-bold leading-tight">
+                    <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+                    VAULT LOCKED
+                  </span>
+                </div>
+              </div>
+              <button 
+                onClick={handleLogout}
+                className="p-1.5 rounded-lg bg-white/5 hover:bg-rose-500/10 text-slate-400 hover:text-rose-400 transition-all cursor-pointer shrink-0"
+                title="Secure Lock out session"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ) : (
+            <div className="glass-card mb-4 p-3 rounded-xl border border-amber-500/10 flex items-center justify-between">
+              <div className="flex items-center gap-2 max-w-[70%]">
+                <div className="w-8 h-8 rounded-xl bg-amber-500/15 flex items-center justify-center text-amber-400 font-bold text-xs flex-shrink-0">
+                  <Lock className="w-3.5 h-3.5" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <span className="font-bold text-slate-300 text-xs truncate block leading-tight">Public Mode</span>
+                  <span className="text-[7px] text-amber-400 font-mono block leading-none select-none uppercase font-bold">Unsaved Session</span>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setAuthTab("login");
+                  setShowAuthOverlay(true);
+                }}
+                className="px-2.5 py-1.5 bg-indigo-500 hover:bg-indigo-600 active:scale-95 text-white font-bold text-[10px] rounded-lg transition-all cursor-pointer tracking-wider font-mono font-bold"
+              >
+                LOGIN
+              </button>
+            </div>
+          )}
 
           {/* Sidebar New Session CTA */}
           <button
@@ -689,81 +1450,155 @@ The workspace API Key has been reported as leaked or revoked by your service pro
           </div>
 
           {/* History header with counter */}
-          <div className="mb-2 text-[10px] font-mono uppercase tracking-widest text-slate-400 flex items-center gap-1.5">
-            <History className="w-3.5 h-3.5 text-indigo-400" />
-            <span>Sessions History ({sessions.length})</span>
+          <div className="mb-2 text-[10px] font-mono uppercase tracking-widest text-slate-400 flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <History className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Sessions History ({sessions.length})</span>
+            </div>
+            {sessionSearchQuery && (
+              <span className="text-[9px] text-indigo-300 bg-indigo-505/10 font-mono px-1.5 py-0.2 rounded font-bold">
+                Filtered
+              </span>
+            )}
+          </div>
+
+          {/* New Search Sessions Input */}
+          <div className="mb-3 relative">
+            <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none text-slate-500">
+              <Search className="w-3.5 h-3.5" />
+            </div>
+            <input
+              type="text"
+              placeholder="Filter by title..."
+              value={sessionSearchQuery}
+              onChange={(e) => setSessionSearchQuery(e.target.value)}
+              className="w-full bg-black/40 border border-white/10 hover:border-white/20 focus:border-indigo-500/40 rounded-xl pl-9 pr-8 py-2 text-xs text-slate-200 placeholder-slate-600 outline-none transition-all font-sans"
+            />
+            {sessionSearchQuery && (
+              <button
+                onClick={() => setSessionSearchQuery("")}
+                className="absolute inset-y-0 right-2 text-slate-400 hover:text-slate-200 transition-colors p-1"
+                title="Clear search"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
 
           {/* Sidebar Sessions List - Dynamic Storage Block */}
           <div className="flex-1 overflow-y-auto space-y-2 pr-1 max-h-[calc(100vh-280px)] md:max-h-none">
             <AnimatePresence initial={false}>
-              {sessions.map((session) => {
-                const isActive = session.id === activeSessionId;
-                const isEditing = session.id === editingSessionId;
+              {(() => {
+                const filteredSessions = sessions.filter(s => 
+                  String(s.title || "").toLowerCase().includes(sessionSearchQuery.toLowerCase())
+                );
 
-                return (
-                  <motion.div
-                    key={session.id}
-                    layoutId={session.id}
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -10 }}
-                    onClick={() => handleSessionSelect(session.id)}
-                    className={`group w-full rounded-xl text-left px-3 py-2.5 transition-all cursor-pointer flex items-center justify-between ${
-                      isActive 
-                        ? "bg-white/10 border-l-4 border-indigo-400" 
-                        : "bg-white/[0.02] hover:bg-white/[0.06] border border-white/5"
-                    }`}
-                  >
-                    <div className="flex-1 min-w-0 mr-2">
-                      {isEditing ? (
-                        <input
-                          type="text"
-                          value={editingTitleValue}
-                          onChange={(e) => setEditingTitleValue(e.target.value)}
-                          onBlur={() => saveSessionName(session.id)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") saveSessionName(session.id);
-                            if (e.key === "Escape") setEditingSessionId("");
-                          }}
-                          autoFocus
-                          onClick={(e) => e.stopPropagation()}
-                          className="w-full bg-slate-950 border border-white/10 rounded px-1.5 py-0.5 text-xs text-white outline-none focus:ring-1 focus:ring-indigo-400"
-                        />
-                      ) : (
-                        <div className="flex items-center gap-2">
-                          <MessageSquare className={`w-3.5 h-3.5 flex-shrink-0 ${isActive ? "text-indigo-400" : "text-slate-400"}`} />
-                          <p className={`text-xs font-semibold truncate ${isActive ? "text-white" : "text-slate-300"}`}>
-                            {session.title}
-                          </p>
-                        </div>
-                      )}
-                      <span className="text-[9px] text-slate-400 font-mono block ml-5.5 mt-0.5">
-                        {new Date(session.createdAt).toLocaleDateString([], { month: "short", day: "numeric" })}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity gap-1">
-                      {!isEditing && (
-                        <button
-                          onClick={(e) => triggerEditTitle(session, e)}
-                          title="Rename Chat"
-                          className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white"
+                if (filteredSessions.length === 0) {
+                  return (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="text-center py-6 px-4 bg-black/30 border border-white/5 rounded-xl"
+                    >
+                      <p className="text-xs text-slate-400">No matching sessions found</p>
+                      {sessionSearchQuery && (
+                        <button 
+                          onClick={() => setSessionSearchQuery("")}
+                          className="text-[10px] text-indigo-400 hover:text-indigo-300 font-bold font-mono uppercase tracking-wider mt-1.5 cursor-pointer underline underline-offset-2"
                         >
-                          <Edit2 className="w-3 h-3" />
+                          Clear Search
                         </button>
                       )}
-                      <button
+                    </motion.div>
+                  );
+                }
+
+                return filteredSessions.map((session) => {
+                  const isActive = session.id === activeSessionId;
+                  const isEditing = session.id === editingSessionId;
+
+                  return (
+                    <div key={session.id} className="relative overflow-hidden rounded-xl bg-rose-600/20 group/swipe">
+                      {/* Swipe-to-delete backdrop indicator */}
+                      <div 
                         onClick={(e) => deleteSession(session.id, e)}
-                        title="Delete Chat"
-                        className="p-1 rounded hover:bg-rose-500/10 text-slate-400 hover:text-rose-400"
+                        className="absolute inset-y-0 right-0 w-24 bg-rose-600 hover:bg-rose-700 flex items-center justify-center text-white font-bold select-none cursor-pointer gap-1 transition-colors z-0"
                       >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="text-[9px] font-mono tracking-wider font-bold">DELETE</span>
+                      </div>
+
+                      <motion.div
+                        layoutId={session.id}
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: -10 }}
+                        drag={isEditing ? false : "x"}
+                        dragConstraints={{ left: -96, right: 0 }}
+                        dragElastic={{ left: 0.15, right: 0 }}
+                        onDragEnd={(event, info) => {
+                          if (info.offset.x < -60) {
+                            deleteSession(session.id);
+                          }
+                        }}
+                        onClick={() => handleSessionSelect(session.id)}
+                        className={`group relative z-10 w-full rounded-xl text-left px-3 py-2.5 transition-all cursor-pointer flex items-center justify-between select-none ${
+                          isActive 
+                            ? "bg-slate-900 border-l-4 border-indigo-400" 
+                            : "bg-[#0b0f1a] hover:bg-slate-900/80 border border-white/5"
+                        }`}
+                      >
+                        <div className="flex-1 min-w-0 mr-2">
+                          {isEditing ? (
+                            <input
+                              type="text"
+                              value={editingTitleValue}
+                              onChange={(e) => setEditingTitleValue(e.target.value)}
+                              onBlur={() => saveSessionName(session.id)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") saveSessionName(session.id);
+                                if (e.key === "Escape") setEditingSessionId("");
+                              }}
+                              autoFocus
+                              onClick={(e) => e.stopPropagation()}
+                              className="w-full bg-slate-950 border border-white/10 rounded px-1.5 py-0.5 text-xs text-white outline-none focus:ring-1 focus:ring-indigo-400"
+                            />
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <MessageSquare className={`w-3.5 h-3.5 flex-shrink-0 ${isActive ? "text-indigo-400" : "text-slate-400"}`} />
+                              <p className={`text-xs font-semibold truncate ${isActive ? "text-white" : "text-slate-300"}`}>
+                                {session.title}
+                              </p>
+                            </div>
+                          )}
+                          <span className="text-[9px] text-slate-400 font-mono block ml-5.5 mt-0.5">
+                            {new Date(session.createdAt).toLocaleDateString([], { month: "short", day: "numeric" })}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity gap-1">
+                          {!isEditing && (
+                            <button
+                              onClick={(e) => triggerEditTitle(session, e)}
+                              title="Rename Chat"
+                              className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white"
+                            >
+                              <Edit2 className="w-3 h-3" />
+                            </button>
+                          )}
+                          <button
+                            onClick={(e) => deleteSession(session.id, e)}
+                            title="Delete Chat"
+                            className="p-1 rounded hover:bg-rose-500/10 text-slate-400 hover:text-rose-400"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </motion.div>
                     </div>
-                  </motion.div>
-                );
-              })}
+                  );
+                });
+              })()}
             </AnimatePresence>
           </div>
 
@@ -771,10 +1606,20 @@ The workspace API Key has been reported as leaked or revoked by your service pro
           <div className="mt-4 pt-4 border-t border-white/5 space-y-2">
             <button
               onClick={() => setShowSettingsDrawer(true)}
-              className="w-full h-8 rounded-xl bg-white/5 border border-white/5 text-[10px] font-mono tracking-wider font-semibold text-slate-300 hover:text-white hover:bg-white/10 transition-all flex items-center justify-center gap-1.5"
+              className="w-full h-8 rounded-xl bg-white/5 border border-white/5 text-[10px] font-mono tracking-wider font-semibold text-slate-300 hover:text-white hover:bg-white/10 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
             >
               <Settings className="w-3.5 h-3.5 text-indigo-400" />
               <span>LAUNCHER CONFIG</span>
+            </button>
+
+            <button
+              onClick={handleDownloadProject}
+              disabled={isZipping}
+              className="w-full h-8 rounded-xl bg-[#059669]/10 hover:bg-[#059669]/15 border border-[#10b981]/25 text-[10px] font-mono tracking-wider font-semibold text-[#34d399] hover:text-[#6ee7b7] transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Download entire project files as ZIP archive"
+            >
+              <Download className={`w-3.5 h-3.5 ${isZipping ? "animate-bounce" : ""}`} />
+              <span>{isZipping ? "ASSEMBLING ZIP..." : "DOWNLOAD WORKSPACE"}</span>
             </button>
           </div>
         </div>
@@ -964,7 +1809,7 @@ The workspace API Key has been reported as leaked or revoked by your service pro
                 </motion.div>
                 
                 <h2 className="font-display text-lg md:text-xl font-bold text-white mb-2 tracking-tight">
-                  Hi, I am Subu AI. How can I help you today?
+                  Hi, I am Subhashree (Subu AI). How can I help you today?
                 </h2>
                 <p className="text-xs text-slate-400 max-w-md mb-8 font-mono leading-relaxed">
                   I am ready to help you write code, formulate ideas, answer complex queries, or browse the live web.
@@ -1261,24 +2106,99 @@ The workspace API Key has been reported as leaked or revoked by your service pro
           <div className="space-y-4">
             <p className="text-[10px] uppercase tracking-widest text-slate-400 font-mono-wide block">Context Status</p>
             
-            <div className="space-y-3">
-              <div className="w-full h-12 bg-white/5 rounded-xl border-l-4 border-indigo-500 flex items-center px-3 gap-2">
-                <div className="p-1 rounded bg-indigo-500/10 text-indigo-400">
+            <div className="space-y-2.5">
+              {/* Card 1: API / Key Verification Status */}
+              <div className={`w-full h-12 bg-white/5 rounded-xl border-l-4 transition-all duration-300 flex items-center px-3 gap-2 ${
+                keyStatus === "valid" ? "border-emerald-500" :
+                keyStatus === "checking" ? "border-indigo-500 animate-pulse" :
+                keyStatus === "invalid" || keyStatus === "leaked" ? "border-rose-500" :
+                "border-amber-500"
+              }`}>
+                <div className={`p-1 rounded text-xs transition-colors duration-300 ${
+                  keyStatus === "valid" ? "bg-emerald-500/15 text-emerald-400" :
+                  keyStatus === "checking" ? "bg-indigo-500/15 text-indigo-400" :
+                  keyStatus === "invalid" || keyStatus === "leaked" ? "bg-rose-500/15 text-rose-400" :
+                  "bg-amber-500/15 text-amber-400"
+                }`}>
                   <Laptop className="w-3.5 h-3.5" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="h-1.5 w-3/4 bg-slate-500 rounded-full mb-1"></div>
-                  <div className="h-1.5 w-1/2 bg-slate-600 rounded-full"></div>
+                  <p className="text-[10px] font-bold text-white truncate uppercase tracking-tight leading-none mb-0.5">
+                    {PROVIDERS_CONFIG[provider]?.name || "LLM Server"}
+                  </p>
+                  <p className="text-[8px] font-mono text-slate-400 leading-none truncate uppercase">
+                    {keyStatus === "checking" ? "Verifying..." :
+                     keyStatus === "valid" ? "API Verified" :
+                     keyStatus === "invalid" || keyStatus === "leaked" ? "Invalid Key" :
+                     "Key Required Mode"}
+                  </p>
                 </div>
               </div>
 
-              <div className="w-full h-12 bg-white/5 rounded-xl border-l-4 border-teal-500 flex items-center px-3 gap-2">
-                <div className="p-1 rounded bg-teal-500/10 text-teal-400">
-                  <CheckCircle className="w-3.5 h-3.5" />
+              {/* Card 2: Chat Length Metric */}
+              <div className="w-full h-12 bg-white/5 rounded-xl border-l-4 border-purple-500 flex items-center px-3 gap-2">
+                <div className="p-1 rounded bg-purple-500/15 text-purple-400">
+                  <MessageSquare className="w-3.5 h-3.5" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="h-1.5 w-2/3 bg-slate-500 rounded-full mb-1"></div>
-                  <div className="h-1.5 w-1/3 bg-slate-600 rounded-full"></div>
+                  <p className="text-[10px] font-bold text-white leading-none mb-0.5">
+                    {activeCharCount.toLocaleString()} Chars
+                  </p>
+                  <p className="text-[8px] font-mono text-slate-400 leading-none uppercase">
+                    {messageCount} Message{messageCount === 1 ? "" : "s"} Active
+                  </p>
+                  <div className="h-1 w-full bg-white/10 rounded-full mt-1 overflow-hidden">
+                    <div 
+                      className="h-full bg-purple-500 rounded-full transition-all duration-500"
+                      style={{ width: `${Math.min(100, Math.max(5, Math.round((activeCharCount / 30000) * 100)))}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Card 3: Custom Persona (System Instructions) */}
+              <div className="w-full h-12 bg-white/5 rounded-xl border-l-4 border-amber-500 flex items-center px-3 gap-2">
+                <div className="p-1 rounded bg-amber-500/15 text-amber-400">
+                  <Activity className="w-3.5 h-3.5" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] font-bold text-white leading-none mb-0.5">
+                    System Persona
+                  </p>
+                  <p className="text-[8px] font-mono text-slate-400 leading-none uppercase truncate">
+                    {sysCharCount} Instruction Chars
+                  </p>
+                  <div className="h-1 w-full bg-white/10 rounded-full mt-1 overflow-hidden">
+                    <div 
+                      className="h-full bg-amber-500 rounded-full transition-all duration-500"
+                      style={{ width: `${Math.min(100, Math.max(5, Math.round((sysCharCount / 1000) * 100)))}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Card 4: Web Search (Grounding) Status */}
+              <div className={`w-full h-12 bg-white/5 rounded-xl border-l-4 flex items-center px-3 gap-2 transition-all duration-300 ${
+                useSearch ? "border-teal-500" : "border-slate-600"
+              }`}>
+                <div className={`p-1 rounded transition-colors duration-300 ${
+                  useSearch ? "bg-teal-500/15 text-teal-400" : "bg-slate-600/15 text-slate-400"
+                }`}>
+                  <Globe className="w-3.5 h-3.5" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] font-bold text-white leading-none mb-0.5">
+                    Web Grounding
+                  </p>
+                  <p className="text-[8px] font-mono text-slate-400 leading-none uppercase">
+                    {useSearch ? "Live Search Active" : "Direct Response"}
+                  </p>
+                  <div className="h-1 w-full bg-white/10 rounded-full mt-1 overflow-hidden">
+                    <div 
+                      className={`h-full rounded-full transition-all duration-500 ${useSearch ? "bg-teal-500" : "bg-slate-600"}`}
+                      style={{ width: useSearch ? "100%" : "10%" }}
+                    />
+                  </div>
                 </div>
               </div>
             </div>
@@ -1385,6 +2305,7 @@ The workspace API Key has been reported as leaked or revoked by your service pro
                     }}
                     className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500/20"
                   >
+                    <option value="openrouter" className="bg-slate-900 text-white">OpenRouter AI</option>
                     <option value="sambanova" className="bg-slate-900 text-white">SambaNova Systems</option>
                     <option value="groq" className="bg-slate-900 text-white">Groq (Llama / Mixtral)</option>
                     <option value="openai" className="bg-slate-900 text-white">OpenAI ChatGPT</option>
@@ -1468,7 +2389,7 @@ The workspace API Key has been reported as leaked or revoked by your service pro
                     <span>SYSTEM PERSONA INSTRUCTIONS</span>
                     <button
                       onClick={() => {
-                        const def = "You are a helpful, friendly, and extremely capable AI assistant. Answer the user's questions clearly, accurately, and with excellent layout and markdown format.";
+                        const def = "You are Subu AI, a friendly, extremely intelligent, and highly capable AI assistant. Your AI name is Subu AI, and your actual, real name is Subhashree (also referred to as Suboshree). Crucially, whenever the user greets you (such as saying 'hi', 'hello', 'hey', 'namaste', etc.), or when you introduce yourself, you must proudly introduce yourself by stating that your name is Subhashree (Subu AI), explaining that you are Subu AI but your real name is Subhashree or Suboshree, and ask how you can help them today. Answer all queries clearly, accurately, with beautiful layouts and responsive markdown formatting.";
                         setSystemInstruction(def);
                         updateActiveSessionSettings({ systemInstruction: def });
                         showFeedbackAction("Reset system instruction to default");
@@ -1524,13 +2445,22 @@ The workspace API Key has been reported as leaked or revoked by your service pro
               </div>
 
               {/* Close CTAs inside drawer */}
-              <div className="pt-4 border-t border-white/5 mt-6 text-center space-y-2 font-mono">
+              <div className="pt-4 border-t border-white/5 mt-6 text-center space-y-3 font-mono">
+                <button
+                  onClick={handleDownloadProject}
+                  disabled={isZipping}
+                  className="w-full h-9 rounded-xl bg-[#059669]/10 hover:bg-[#059669]/15 border border-[#10b981]/25 text-xs font-semibold text-[#34d399] hover:text-[#6ee7b7] transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Download className={`w-4 h-4 ${isZipping ? "animate-bounce" : ""}`} />
+                  <span>{isZipping ? "Assembling ZIP Archive..." : "Export Workspace as ZIP"}</span>
+                </button>
+
                 <p className="text-[9px] text-slate-500">
                   Server Port: 3000 | Handshake status: active
                 </p>
                 <button
                   onClick={() => setShowSettingsDrawer(false)}
-                  className="w-full bg-white/5 hover:bg-white/10 border border-white/5 py-2 rounded-xl text-xs font-semibold text-slate-350"
+                  className="w-full bg-white/5 hover:bg-white/10 border border-white/5 py-2 rounded-xl text-xs font-semibold text-slate-350 cursor-pointer"
                 >
                   Close Configurations
                 </button>
